@@ -66,11 +66,27 @@ pic18-embedded-drivers/
 │   └── LED/
 │       ├── ecu_led.h          # LED interface
 │       └── ecu_led.c          # LED implementation
+├── Projects/
+│   ├── 01_LED_Chaser/         # main.c + README.md
+│   ├── 02_Traffic_Light/
+│   ├── 03_Binary_Counter/
+│   └── 04_Morse_Code/
 ├── LICENSE
 └── README.md
 ```
 
 > New drivers follow the same pattern: `MCAL_Layer/<PERIPHERAL>/hal_<peripheral>.{h,c}` or `ECU_Layer/<DEVICE>/ecu_<device>.{h,c}`, plus a toggle in `device_config.h`.
+
+## 🧪 Projects
+
+GPIO-only projects you can build on top of the drivers. Each one is self-contained: its `main.c` plus the driver sources. **Build one project per MPLAB X build**, and don't add the root `application.c` alongside it, since every project defines its own `main()`.
+
+| # | Project | Drivers | Highlights |
+|:-:|---|---|---|
+| 01 | [LED Chaser](Projects/01_LED_Chaser) | GPIO | Knight Rider + pattern-table effects (bounce, fill, center-out, alternate) |
+| 02 | [4-Way Traffic Light](Projects/02_Traffic_Light) | GPIO | 6-state table-driven FSM, 12 LEDs, emergency button with internal pull-up |
+| 03 | [Binary Counter](Projects/03_Binary_Counter) | GPIO | 0–255, Up/Down/Reset, debounce + edge detection |
+| 04 | [Morse Code](Projects/04_Morse_Code) | GPIO + LED | A–Z / 0–9 lookup table, unit-based timing, any string |
 
 ## 🗺️ Drivers Roadmap
 
@@ -265,6 +281,7 @@ The demo cycles Red → Green → Blue every 500 ms.
 - ✅ **GPIO** و **LED** خلصوا.
 - ✅ **إعداد Analog/Digital:** فيه جدول بيربط كل بن بقناة ANx، والدرايفر بيحسب أقل قيمة PCFG في ADCON1 تخلي البنات اللي طلبتها Analog. وخلي بالك إن ده نظام عتبة في الهاردوير، يعني القنوات اللي أقل منها هتبقى Analog هي كمان.
 - ✅ **Pull-ups الداخلية لـ PORTB:** تفعيل أو إلغاء بنداء واحد.
+- ✅ **المشاريع:** فيه ٤ مشاريع شغالة بالـ GPIO بس: LED Chaser وإشارة مرور ٤ اتجاهات وعداد Binary وشفرة مورس. هتلاقيها في فولدر `Projects/`.
 - 🗓️ الجاي: Button، Interrupts، ADC، Timers، CCP/PWM، UART، SPI، I2C، LCD، Keypad، 7-Segment.
 
 ### التشغيل
