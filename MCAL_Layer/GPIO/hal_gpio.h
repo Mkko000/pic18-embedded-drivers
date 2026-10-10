@@ -2,7 +2,7 @@
  * @file    hal_gpio.h
  * @author  Mohammed El Sisi
  * @brief   GPIO Driver Interface for PIC18F4620
- * @version 2.0.0
+ * @version 2.1.0
  * @date    2026-10-11
  * @target  PIC18F4620
  * @compiler XC8
@@ -14,7 +14,10 @@
  * - **Struct-Based API**: Uses pin_config_t for organized pin management.
  * - **Direct API**: Uses simple parameter passing for quick operations.
  *
- * Both APIs can be enabled/disabled from device_config.h.
+ * Both APIs can be enabled/disabled from device_config.h. The Struct API
+ * is a thin wrapper over the Direct API, so validation lives in one place.
+ *
+ * Extras: analog/digital pin selection (ADCON1 PCFG) and PORTB pull-ups.
  *
  * @note
  * - The driver uses LAT registers for writing to avoid Read-Modify-Write issues.
@@ -70,6 +73,21 @@
 
 /** @brief Check if direction is valid */
 #define IS_VALID_DIRECTION(dir)     (((uint8)(dir)) <= GPIO_DIRECTION_INPUT)
+
+/** @brief Bit mask of the physical pins on PORTE (RE0-RE2) */
+#define PORTE_VALID_PIN_MASK        ((uint8)0x07)
+
+/** @brief Marker for a pin that has no analog (ANx) function */
+#define GPIO_NO_ANALOG_CHANNEL      ((uint8)0xFF)
+
+/** @brief Highest analog channel on PIC18F4620 (AN12) */
+#define GPIO_MAX_ANALOG_CHANNEL     12
+
+/** @brief ADCON1 PCFG<3:0> value: all pins digital */
+#define GPIO_PCFG_ALL_DIGITAL       ((uint8)0x0F)
+
+/** @brief ADCON1 PCFG<3:0> field mask (VCFG bits are preserved) */
+#define GPIO_PCFG_MASK              ((uint8)0x0F)
 
 /** @brief Check if logic is valid */
 #define IS_VALID_LOGIC(logic)       (((uint8)(logic)) <= GPIO_HIGH)
@@ -136,24 +154,138 @@ typedef struct {
 } pin_config_t;
 
 /* =========================================================================
- * Section: Struct-Based API
+ * Section: Driver Initialization
  * ========================================================================= */
+
+/**
+ * @brief   Initialize the GPIO driver.
+ * @details When GPIO_INIT_ALL_DIGITAL is enabled, all analog-capable pins
+ *          are switched to digital (ADCON1 PCFG = 0x0F) and the internal
+ *          analog-request table is cleared. Call once at startup.
+ * @return  E_OK always.
+ */
+Std_ReturnType gpio_init(void);
+
+/* =========================================================================
+ * Section: Direct API (core implementation - validation lives here)
+ * ========================================================================= */
+
+#if GPIO_DIRECT_API_ENABLE == CONFIG_ENABLE
+
+/**
+ * @brief   Setup a pin completely (direction + initial logic) - PREFERRED.
+ * @details The pin is automatically switched to digital mode, unless the
+ *          ADC module is enabled and has claimed the pin as analog.
+ * @param   port      Port index (@ref port_index_t).
+ * @param   pin       Pin index (@ref pin_index_t).
+ * @param   direction Pin direction (@ref direction_t).
+ * @param   logic     Initial logic (applied to outputs only).
+ * @return  E_OK if successful, E_NOT_OK otherwise.
+ */
+Std_ReturnType gpio_pin_setup(port_index_t port,
+                               pin_index_t pin,
+                               direction_t direction,
+                               logic_t logic);
+
+/**
+ * @brief   Set pin direction only.
+ * @return  E_OK if successful, E_NOT_OK otherwise.
+ */
+Std_ReturnType gpio_pin_set_direction(port_index_t port, pin_index_t pin, direction_t direction);
+
+/**
+ * @brief   Get pin direction (from TRIS).
+ * @return  E_OK if successful, E_NOT_OK otherwise.
+ */
+Std_ReturnType gpio_pin_get_direction(port_index_t port, pin_index_t pin, direction_t *direction);
+
+/**
+ * @brief   Write logic value to a pin (LAT).
+ * @return  E_OK if successful, E_NOT_OK otherwise.
+ */
+Std_ReturnType gpio_pin_write(port_index_t port, pin_index_t pin, logic_t logic);
+
+/**
+ * @brief   Read logic value from a pin (PORT).
+ * @return  E_OK if successful, E_NOT_OK otherwise.
+ */
+Std_ReturnType gpio_pin_read(port_index_t port, pin_index_t pin, logic_t *logic);
+
+/**
+ * @brief   Read the output latch of a pin (LAT), i.e. the value last written.
+ * @note    Useful for outputs whose real pin level may differ (heavy load).
+ * @return  E_OK if successful, E_NOT_OK otherwise.
+ */
+Std_ReturnType gpio_pin_read_latch(port_index_t port, pin_index_t pin, logic_t *logic);
+
+/**
+ * @brief   Toggle a pin (LAT).
+ * @return  E_OK if successful, E_NOT_OK otherwise.
+ */
+Std_ReturnType gpio_pin_toggle(port_index_t port, pin_index_t pin);
+
+/**
+ * @brief   Reset a pin to its default state (Input, LAT = LOW).
+ * @return  E_OK if successful, E_NOT_OK otherwise.
+ */
+Std_ReturnType gpio_pin_deinit(port_index_t port, pin_index_t pin);
+
+/**
+ * @brief   Setup a port completely (direction + initial value).
+ * @note    Bits of non-existent pins (e.g. RE3-RE7) are left untouched.
+ * @return  E_OK if successful, E_NOT_OK otherwise.
+ */
+Std_ReturnType gpio_port_setup(port_index_t port, uint8 direction_mask, uint8 initial_value);
+
+/**
+ * @brief   Set port direction (TRIS), only for pins that exist.
+ * @return  E_OK if successful, E_NOT_OK otherwise.
+ */
+Std_ReturnType gpio_port_set_direction(port_index_t port, uint8 direction_mask);
+
+/**
+ * @brief   Get port direction (TRIS), non-existent pins read as 0.
+ * @return  E_OK if successful, E_NOT_OK otherwise.
+ */
+Std_ReturnType gpio_port_get_direction(port_index_t port, uint8 *direction_mask);
+
+/**
+ * @brief   Write 8-bit value to a port (LAT), only for pins that exist.
+ * @return  E_OK if successful, E_NOT_OK otherwise.
+ */
+Std_ReturnType gpio_port_write(port_index_t port, uint8 logic_mask);
+
+/**
+ * @brief   Read 8-bit value from a port (PORT), non-existent pins read as 0.
+ * @return  E_OK if successful, E_NOT_OK otherwise.
+ */
+Std_ReturnType gpio_port_read(port_index_t port, uint8 *logic);
+
+/**
+ * @brief   Toggle the OUTPUT pins of a port (input pins are not touched).
+ * @return  E_OK if successful, E_NOT_OK otherwise.
+ */
+Std_ReturnType gpio_port_toggle(port_index_t port);
+
+#endif /* GPIO_DIRECT_API_ENABLE */
+
+/* =========================================================================
+ * Section: Struct-Based API (thin wrappers over the Direct API)
+ * ========================================================================= */
+
 #if GPIO_STRUCT_API_ENABLE == CONFIG_ENABLE
 
 #if GPIO_PORT_PIN_CONFIGURATIONS == CONFIG_ENABLE
 
 /**
  * @brief   Initialize pin direction only.
- * @param   _pin_config  Pointer to pin configuration structure.
+ * @param   _pin_config Pointer to pin configuration.
  * @return  E_OK if successful, E_NOT_OK otherwise.
- * @note    Use gpio_pin_setup() for complete initialization.
  */
 Std_ReturnType gpio_pin_direction_initialize(const pin_config_t *_pin_config);
 
 /**
  * @brief   Get current pin direction.
- * @param   _pin_config       Pointer to pin configuration.
- * @param   direction_status  Pointer to store the direction.
  * @return  E_OK if successful, E_NOT_OK otherwise.
  */
 Std_ReturnType gpio_pin_get_direction_status(const pin_config_t *_pin_config,
@@ -161,37 +293,30 @@ Std_ReturnType gpio_pin_get_direction_status(const pin_config_t *_pin_config,
 
 /**
  * @brief   Write a logic value to a pin.
- * @param   _pin_config  Pointer to pin configuration.
- * @param   logic        Logic value (GPIO_LOW or GPIO_HIGH).
  * @return  E_OK if successful, E_NOT_OK otherwise.
  */
 Std_ReturnType gpio_pin_write_logic(const pin_config_t *_pin_config, logic_t logic);
 
 /**
  * @brief   Read a logic value from a pin.
- * @param   _pin_config  Pointer to pin configuration.
- * @param   logic        Pointer to store the read logic value.
  * @return  E_OK if successful, E_NOT_OK otherwise.
  */
 Std_ReturnType gpio_pin_read_logic(const pin_config_t *_pin_config, logic_t *logic);
 
 /**
  * @brief   Toggle the state of a pin.
- * @param   _pin_config  Pointer to pin configuration.
  * @return  E_OK if successful, E_NOT_OK otherwise.
  */
 Std_ReturnType gpio_pin_toggle_logic(const pin_config_t *_pin_config);
 
 /**
- * @brief   Full pin initialization (direction + initial logic).
- * @param   _pin_config  Pointer to pin configuration.
+ * @brief   Full pin initialization (digital mode + direction + logic).
  * @return  E_OK if successful, E_NOT_OK otherwise.
  */
 Std_ReturnType gpio_pin_initialize(const pin_config_t *_pin_config);
 
 /**
  * @brief   Reset pin to default state (Input, LOW).
- * @param   _pin_config  Pointer to pin configuration.
  * @return  E_OK if successful, E_NOT_OK otherwise.
  */
 Std_ReturnType gpio_pin_deinitialize(const pin_config_t *_pin_config);
@@ -200,52 +325,22 @@ Std_ReturnType gpio_pin_deinitialize(const pin_config_t *_pin_config);
 
 #if GPIO_PORT_CONFIGURATIONS == CONFIG_ENABLE
 
-/**
- * @brief   Initialize port direction mask.
- * @param   port           Port index.
- * @param   direction_mask 8-bit direction mask (0=Output, 1=Input).
- * @return  E_OK if successful, E_NOT_OK otherwise.
- */
+/** @brief Initialize port direction mask. */
 Std_ReturnType gpio_port_direction_initialize(port_index_t port, uint8 direction_mask);
 
-/**
- * @brief   Get port direction status.
- * @param   port              Port index.
- * @param   direction_status  Pointer to store the direction mask.
- * @return  E_OK if successful, E_NOT_OK otherwise.
- */
+/** @brief Get port direction status. */
 Std_ReturnType gpio_port_get_direction_status(port_index_t port, uint8 *direction_status);
 
-/**
- * @brief   Write 8-bit value to a port.
- * @param   port        Port index.
- * @param   logic_mask  8-bit value to write.
- * @return  E_OK if successful, E_NOT_OK otherwise.
- */
+/** @brief Write 8-bit value to a port. */
 Std_ReturnType gpio_port_write_logic(port_index_t port, uint8 logic_mask);
 
-/**
- * @brief   Read 8-bit value from a port.
- * @param   port   Port index.
- * @param   logic  Pointer to store the value.
- * @return  E_OK if successful, E_NOT_OK otherwise.
- */
+/** @brief Read 8-bit value from a port. */
 Std_ReturnType gpio_port_read_logic(port_index_t port, uint8 *logic);
 
-/**
- * @brief   Toggle all pins of a port.
- * @param   port  Port index.
- * @return  E_OK if successful, E_NOT_OK otherwise.
- */
+/** @brief Toggle the output pins of a port. */
 Std_ReturnType gpio_port_toggle_logic(port_index_t port);
 
-/**
- * @brief   Full port initialization (direction mask + initial value).
- * @param   port            Port index.
- * @param   direction_mask  Direction mask.
- * @param   initial_value   Initial value.
- * @return  E_OK if successful, E_NOT_OK otherwise.
- */
+/** @brief Full port initialization. */
 Std_ReturnType gpio_port_initialize(port_index_t port, uint8 direction_mask, uint8 initial_value);
 
 #endif /* GPIO_PORT_CONFIGURATIONS */
@@ -253,69 +348,66 @@ Std_ReturnType gpio_port_initialize(port_index_t port, uint8 direction_mask, uin
 #endif /* GPIO_STRUCT_API_ENABLE */
 
 /* =========================================================================
- * Section: Direct API (Simple, Fast, No Struct)
+ * Section: Analog / Digital Pin Configuration
  * ========================================================================= */
-#if GPIO_DIRECT_API_ENABLE == CONFIG_ENABLE
 
-/* ---------- Pin Direct APIs ---------- */
+#if GPIO_ANALOG_CONFIG_ENABLE == CONFIG_ENABLE
 
 /**
- * @brief   Setup a GPIO pin completely (PREFERRED).
- * @param   port       Port index (@ref port_index_t).
- * @param   pin        Pin index (@ref pin_index_t).
- * @param   direction  Direction (@ref direction_t).
- * @param   logic      Initial logic (@ref logic_t) - only if OUTPUT.
- * @return  E_OK if successful, E_NOT_OK otherwise.
+ * @brief   Request a pin to be analog (ANx input).
  *
- * @par Example:
- * @code
- *   gpio_pin_setup(PORTC_INDEX, GPIO_PIN0,
- *                  GPIO_DIRECTION_OUTPUT, GPIO_LOW);
- * @endcode
+ * @details PIC18F4620 selects analog pins with ADCON1<PCFG3:0>, which is a
+ *          THRESHOLD scheme (ANn..AN0 analog), not per-pin. The driver keeps
+ *          track of every requested analog channel and programs the minimal
+ *          PCFG value that makes all of them analog.
+ *
+ * @warning Hardware limitation: every channel BELOW the highest requested one
+ *          becomes analog too (e.g. requesting AN4/RA5 also makes AN0-AN3
+ *          analog). Plan pin assignments so analog inputs use low channels.
+ *
+ * @param   port Port index.
+ * @param   pin  Pin index.
+ * @return  E_OK if successful, E_NOT_OK if the pin has no ANx function.
  */
-Std_ReturnType gpio_pin_setup(port_index_t port,
-                               pin_index_t pin,
-                               direction_t direction,
-                               logic_t logic);
+Std_ReturnType gpio_pin_set_analog(port_index_t port, pin_index_t pin);
 
 /**
- * @brief   Write logic value to a pin directly.
+ * @brief   Release a pin back to digital mode and recompute PCFG.
+ * @return  E_OK if the pin is now digital (or has no analog function),
+ *          E_NOT_OK if invalid or it must stay analog because a higher
+ *          channel is still requested analog (threshold limitation).
  */
-Std_ReturnType gpio_pin_write(port_index_t port, pin_index_t pin, logic_t logic);
+Std_ReturnType gpio_pin_set_digital(port_index_t port, pin_index_t pin);
 
 /**
- * @brief   Read logic value from a pin directly.
+ * @brief   Check whether a pin is currently analog in hardware.
+ * @return  E_OK if successful, E_NOT_OK otherwise.
  */
-Std_ReturnType gpio_pin_read(port_index_t port, pin_index_t pin, logic_t *logic);
+Std_ReturnType gpio_pin_is_analog(port_index_t port, pin_index_t pin, boolean_t *is_analog);
+
+#endif /* GPIO_ANALOG_CONFIG_ENABLE */
+
+/* =========================================================================
+ * Section: PORTB Internal Weak Pull-ups
+ * ========================================================================= */
+
+#if GPIO_PORTB_PULLUP_ENABLE == CONFIG_ENABLE
 
 /**
- * @brief   Toggle a pin directly.
+ * @brief   Enable PORTB internal weak pull-ups (INTCON2.RBPU = 0, active low).
+ * @note    Pull-ups are applied automatically only to PORTB pins configured
+ *          as inputs; outputs are not affected.
+ * @return  E_OK always.
  */
-Std_ReturnType gpio_pin_toggle(port_index_t port, pin_index_t pin);
-
-/* ---------- Port Direct APIs ---------- */
+Std_ReturnType gpio_portb_pullup_enable(void);
 
 /**
- * @brief   Setup a port completely.
+ * @brief   Disable PORTB internal weak pull-ups (INTCON2.RBPU = 1).
+ * @return  E_OK always.
  */
-Std_ReturnType gpio_port_setup(port_index_t port, uint8 direction_mask, uint8 initial_value);
+Std_ReturnType gpio_portb_pullup_disable(void);
 
-/**
- * @brief   Write 8-bit value to a port directly.
- */
-Std_ReturnType gpio_port_write(port_index_t port, uint8 logic_mask);
-
-/**
- * @brief   Read 8-bit value from a port directly.
- */
-Std_ReturnType gpio_port_read(port_index_t port, uint8 *logic);
-
-/**
- * @brief   Toggle all pins of a port directly.
- */
-Std_ReturnType gpio_port_toggle(port_index_t port);
-
-#endif /* GPIO_DIRECT_API_ENABLE */
+#endif /* GPIO_PORTB_PULLUP_ENABLE */
 
 #endif /* GPIO_MODULE_ENABLE */
 #endif /* HAL_GPIO_H */

@@ -7,6 +7,7 @@
  *
  * @details
  * This file aggregates all standard C library includes in one place.
+ * Only what the drivers actually use is included by default.
  * This ensures consistency across the project and makes it easy to
  * add or remove libraries.
  *
@@ -18,9 +19,14 @@
 #ifndef STD_LIBRARIES_H
 #define STD_LIBRARIES_H
 
-#include <stdio.h>    /**< Standard I/O (printf, sprintf) */
-#include <string.h>   /**< String operations (strcpy, strlen) */
-#include <math.h>     /**< Math functions (sqrt, pow) */
-#include <stdlib.h>   /**< General utilities (atoi, malloc) */
+/* -------- Required by the drivers -------- */
+#include <stddef.h>   /**< NULL, size_t */
+
+/* -------- Optional (uncomment only when needed: they cost Flash/RAM) -------- */
+/* #include <stdint.h> */   /**< uint8_t, uint16_t ... */
+/* #include <string.h> */   /**< memset, memcpy, strlen */
+/* #include <stdio.h>  */   /**< printf, sprintf (heavy on PIC18!) */
+/* #include <stdlib.h> */   /**< atoi, abs */
+/* #include <math.h>   */   /**< sqrt, pow (heavy on PIC18!) */
 
 #endif /* STD_LIBRARIES_H */

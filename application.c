@@ -98,6 +98,8 @@ led_config_t led_blue = {
 void main(void) {
 
     /* -------- Initialization -------- */
+    (void)gpio_init();      /* all pins digital (ADCON1 PCFG = 0x0F) */
+
     #if LED_MODULE_ENABLE == CONFIG_ENABLE
     led_initialize(&led_red);
     led_initialize(&led_green);
@@ -130,5 +132,4 @@ void main(void) {
         #endif
     }
 
-    return;
 }

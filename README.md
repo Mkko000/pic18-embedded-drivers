@@ -77,19 +77,21 @@ pic18-embedded-drivers/
 | # | Driver | Layer | Status | Notes |
 |:-:|---|:-:|:-:|---|
 | 1 | **GPIO** | MCAL | ✅ Done | Pin & port APIs, Struct + Direct styles, range checks |
-| 2 | **LED** | ECU | ✅ Done | Active-high / active-low, on / off / toggle |
-| 3 | Push Button | ECU | 🗓️ Planned | Debouncing, active-high / low |
-| 4 | Interrupts (INTx, RBx) | MCAL | 🗓️ Planned | External & on-change interrupts, priority |
-| 5 | ADC | MCAL | 🗓️ Planned | 10-bit, polling & interrupt modes |
-| 6 | Timers (0/1/2/3) | MCAL | 🗓️ Planned | Timer/counter modes, prescalers |
-| 7 | CCP / PWM | MCAL | 🗓️ Planned | Capture, compare, PWM |
-| 8 | UART (EUSART) | MCAL | 🗓️ Planned | Async TX/RX, baud-rate calculation |
-| 9 | SPI (MSSP) | MCAL | 🗓️ Planned | Master / slave |
-| 10 | I2C (MSSP) | MCAL | 🗓️ Planned | Master / slave |
-| 11 | Character LCD | ECU | 🗓️ Planned | 4-bit / 8-bit modes |
-| 12 | Keypad | ECU | 🗓️ Planned | 4×4 matrix scanning |
-| 13 | 7-Segment | ECU | 🗓️ Planned | Multiplexed display |
-| 14 | DC Motor / Relay | ECU | 🗓️ Planned | Direction & on/off control |
+| 2 | **LED** | ECU | ✅ Done | Active-high / active-low, on / off / toggle / get state |
+| 3 | **Analog / Digital pin config** | MCAL | ✅ Done | ANx lookup table, minimal ADCON1 PCFG threshold |
+| 4 | **PORTB internal pull-ups** | MCAL | ✅ Done | `INTCON2.RBPU` enable / disable |
+| 5 | Push Button | ECU | 🗓️ Planned | Debouncing, active-high / low |
+| 6 | Interrupts (INTx, RBx) | MCAL | 🗓️ Planned | External & on-change interrupts, priority |
+| 7 | ADC | MCAL | 🗓️ Planned | 10-bit, polling & interrupt modes |
+| 8 | Timers (0/1/2/3) | MCAL | 🗓️ Planned | Timer/counter modes, prescalers |
+| 9 | CCP / PWM | MCAL | 🗓️ Planned | Capture, compare, PWM |
+| 10 | UART (EUSART) | MCAL | 🗓️ Planned | Async TX/RX, baud-rate calculation |
+| 11 | SPI (MSSP) | MCAL | 🗓️ Planned | Master / slave |
+| 12 | I2C (MSSP) | MCAL | 🗓️ Planned | Master / slave |
+| 13 | Character LCD | ECU | 🗓️ Planned | 4-bit / 8-bit modes |
+| 14 | Keypad | ECU | 🗓️ Planned | 4×4 matrix scanning |
+| 15 | 7-Segment | ECU | 🗓️ Planned | Multiplexed display |
+| 16 | DC Motor / Relay | ECU | 🗓️ Planned | Direction & on/off control |
 
 <sub>Legend: ✅ Done · 🚧 In progress · 🗓️ Planned</sub>
 
@@ -97,13 +99,49 @@ pic18-embedded-drivers/
 
 - 🧱 **Layered architecture**: Config, Common, MCAL, ECU, Application.
 - 🎛️ **Configuration pattern**: enable/disable any module from `device_config.h`.
-- 🔁 **Dual GPIO APIs**: struct-based (`pin_config_t`) and direct (`port, pin`) calls.
+- 🔁 **Dual GPIO APIs**: struct-based (`pin_config_t`) and direct (`port, pin`) calls. The Struct API is a thin wrapper over the Direct API, so validation lives in **one** place.
+- 🎚️ **Smart analog/digital selection**: pin → ANx lookup table; the driver computes the minimal `ADCON1.PCFG` threshold for the pins you request, and `gpio_pin_setup()` makes pins digital automatically.
+- 🔼 **PORTB weak pull-ups**: one call, no external resistors for buttons.
+- 🎯 **Pin-aware port operations**: port writes never touch non-existent pins (RE3–RE7), and port toggle only flips **output** pins.
+- 🔒 **Encapsulated registers**: file-local `static volatile uint8 * const` register tables.
 - 🛡️ **Defensive programming**: NULL-pointer protection and range checking on every parameter.
 - ⚡ **Fast register access**: TRIS/LAT/PORT register arrays.
 - ✍️ **LAT for writes, PORT for reads**: avoids read-modify-write issues.
 - ✅ **AUTOSAR-style returns**: every API returns `Std_ReturnType` (`E_OK` / `E_NOT_OK`).
 - 🔍 **Compile-time dependency checks**: e.g. LED requires GPIO.
 - 📝 **Fully Doxygen-documented** functions and types.
+
+## 📚 API Reference
+
+### GPIO (MCAL)
+
+| Group | Functions |
+|---|---|
+| Init | `gpio_init()` |
+| Pin (Direct) | `gpio_pin_setup`, `gpio_pin_set_direction`, `gpio_pin_get_direction`, `gpio_pin_write`, `gpio_pin_read`, `gpio_pin_read_latch`, `gpio_pin_toggle`, `gpio_pin_deinit` |
+| Port (Direct) | `gpio_port_setup`, `gpio_port_set_direction`, `gpio_port_get_direction`, `gpio_port_write`, `gpio_port_read`, `gpio_port_toggle` |
+| Pin (Struct) | `gpio_pin_initialize`, `gpio_pin_direction_initialize`, `gpio_pin_get_direction_status`, `gpio_pin_write_logic`, `gpio_pin_read_logic`, `gpio_pin_toggle_logic`, `gpio_pin_deinitialize` |
+| Port (Struct) | `gpio_port_initialize`, `gpio_port_direction_initialize`, `gpio_port_get_direction_status`, `gpio_port_write_logic`, `gpio_port_read_logic`, `gpio_port_toggle_logic` |
+| Analog / Digital | `gpio_pin_set_analog`, `gpio_pin_set_digital`, `gpio_pin_is_analog` |
+| Pull-ups | `gpio_portb_pullup_enable`, `gpio_portb_pullup_disable` |
+
+### LED (ECU)
+
+`led_initialize`, `led_on`, `led_off`, `led_toggle`, `led_get_state`
+
+All functions return `Std_ReturnType` (`E_OK` / `E_NOT_OK`).
+
+### ⚠️ Analog pins: hardware note
+
+PIC18F4620 selects analog pins with `ADCON1<PCFG3:0>`, a **threshold** scheme (`AN0…ANn` analog), not per-pin. Requesting a high channel (e.g. `AN4` = RA5) makes every lower channel (`AN0–AN3`) analog too. The driver tracks every requested channel and always programs the **minimal** threshold. `gpio_pin_set_digital()` returns `E_NOT_OK` if a pin must stay analog because a higher channel is still in use.
+
+| ANx | Pin | ANx | Pin | ANx | Pin |
+|:-:|:-:|:-:|:-:|:-:|:-:|
+| AN0 | RA0 | AN5 | RE0 | AN10 | RB1 |
+| AN1 | RA1 | AN6 | RE1 | AN11 | RB4 |
+| AN2 | RA2 | AN7 | RE2 | AN12 | RB0 |
+| AN3 | RA3 | AN8 | RB2 | | |
+| AN4 | RA5 | AN9 | RB3 | | |
 
 ## 🚀 Quick Start
 
@@ -135,6 +173,7 @@ led_config_t led_red = {
 };
 
 void main(void) {
+    gpio_init();                 /* all pins digital */
     led_initialize(&led_red);
     while (1) {
         led_toggle(&led_red);
@@ -146,12 +185,14 @@ void main(void) {
 GPIO can also be used directly:
 
 ```c
-pin_config_t button = { .port = PORTB_INDEX, .pin = GPIO_PIN0,
-                        .direction = GPIO_DIRECTION_INPUT };
+/* Button on RB0 using the internal pull-up (pressed = LOW) */
 logic_t state;
+gpio_portb_pullup_enable();
+gpio_pin_setup(PORTB_INDEX, GPIO_PIN0, GPIO_DIRECTION_INPUT, GPIO_LOW);
+gpio_pin_read(PORTB_INDEX, GPIO_PIN0, &state);
 
-gpio_pin_direction_initialize(&button);
-gpio_pin_read_logic(&button, &state);
+/* Potentiometer on RA0 (AN0) */
+gpio_pin_set_analog(PORTA_INDEX, GPIO_PIN0);
 ```
 
 ## ⚙️ Configuration
@@ -163,7 +204,10 @@ All features are controlled from **`Config/device_config.h`**:
 
 #define GPIO_MODULE_ENABLE         CONFIG_ENABLE
 #define GPIO_STRUCT_API_ENABLE     CONFIG_ENABLE
-#define GPIO_DIRECT_API_ENABLE     CONFIG_ENABLE
+#define GPIO_DIRECT_API_ENABLE     CONFIG_ENABLE   /* required by STRUCT API */
+#define GPIO_ANALOG_CONFIG_ENABLE  CONFIG_ENABLE
+#define GPIO_INIT_ALL_DIGITAL      CONFIG_ENABLE
+#define GPIO_PORTB_PULLUP_ENABLE   CONFIG_ENABLE
 
 #define LED_MODULE_ENABLE          CONFIG_ENABLE
 #define BUTTON_MODULE_ENABLE       CONFIG_DISABLE
@@ -212,9 +256,13 @@ The demo cycles Red → Green → Blue every 500 ms.
 - **نقطة تحكم واحدة:** كل الموديولات بتتفعّل أو تتقفل من `Config/device_config.h`.
 - **أسلوب AUTOSAR:** كل دالة بترجع `Std_ReturnType`، وفيه حماية من الـ NULL Pointers وفحص لكل البارامترات.
 - **توثيق كامل بـ Doxygen** لكل دالة وكل نوع.
+- **من غير تكرار:** الـ Struct API مجرد غلاف فوق الـ Direct API، فالتحقق من البارامترات مكتوب في مكان واحد بس.
+- **عمليات البورت ذكية:** مش بتلمس البنات اللي مش موجودة زي RE3–RE7، والـ toggle بيقلب بنات الـ Output بس.
 
 ### حالة الدرايفرز
 - ✅ **GPIO** و **LED** خلصوا.
+- ✅ **إعداد Analog/Digital:** فيه جدول بيربط كل بن بقناة ANx، والدرايفر بيحسب أقل قيمة PCFG في ADCON1 تخلي البنات اللي طلبتها Analog. وخلي بالك إن ده نظام عتبة في الهاردوير، يعني القنوات اللي أقل منها هتبقى Analog هي كمان.
+- ✅ **Pull-ups الداخلية لـ PORTB:** تفعيل أو إلغاء بنداء واحد.
 - 🗓️ الجاي: Button، Interrupts، ADC، Timers، CCP/PWM، UART، SPI، I2C، LCD، Keypad، 7-Segment.
 
 ### التشغيل

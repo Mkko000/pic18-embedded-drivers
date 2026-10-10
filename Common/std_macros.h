@@ -106,8 +106,11 @@
 /** @brief Get maximum of two values. */
 #define MAX(a, b)                   ((a) > (b) ? (a) : (b))
 
-/** @brief Swap two variables. @note Uses typeof (GCC/XC8 extension). */
-#define SWAP(a, b)                  do { typeof(a) _t = (a); (a) = (b); (b) = _t; } while(0)
+/**
+ * @brief Swap two variables of the given type (portable, no typeof).
+ * @code  SWAP(uint8, x, y); @endcode
+ */
+#define SWAP(type, a, b)            do { type _swap_tmp = (a); (a) = (b); (b) = _swap_tmp; } while(0)
 
 /** @brief Create a single-bit mask. */
 #define BIT_VALUE(BIT)              (1UL << (BIT))  /* renamed from BIT_MASK(BIT) to avoid clashing with BIT_MASK */

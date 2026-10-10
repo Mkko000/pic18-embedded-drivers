@@ -68,6 +68,9 @@
 #define GPIO_DIRECT_API_ENABLE          CONFIG_ENABLE
 #define GPIO_PORT_PIN_CONFIGURATIONS    CONFIG_ENABLE
 #define GPIO_PORT_CONFIGURATIONS        CONFIG_ENABLE
+#define GPIO_ANALOG_CONFIG_ENABLE       CONFIG_ENABLE   /**< gpio_pin_set_analog/digital */
+#define GPIO_INIT_ALL_DIGITAL           CONFIG_ENABLE   /**< gpio_init(): ADCON1 PCFG = 0x0F */
+#define GPIO_PORTB_PULLUP_ENABLE        CONFIG_ENABLE   /**< PORTB weak pull-up APIs */
 
 /* -------- ADC Module -------- */
 #define ADC_MODULE_ENABLE               CONFIG_DISABLE
@@ -133,6 +136,10 @@
 
 #if (BUTTON_MODULE_ENABLE == CONFIG_ENABLE) && (GPIO_MODULE_ENABLE != CONFIG_ENABLE)
     #error "BUTTON_MODULE requires GPIO_MODULE to be enabled!"
+#endif
+
+#if (GPIO_STRUCT_API_ENABLE == CONFIG_ENABLE) && (GPIO_DIRECT_API_ENABLE != CONFIG_ENABLE)
+    #error "GPIO_STRUCT_API is a wrapper over GPIO_DIRECT_API - enable GPIO_DIRECT_API_ENABLE!"
 #endif
 
 #if (LED_MODULE_ENABLE == CONFIG_ENABLE) && (GPIO_DIRECT_API_ENABLE != CONFIG_ENABLE)

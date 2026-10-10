@@ -35,6 +35,14 @@ typedef enum {
 } led_active_t;
 
 /**
+ * @brief LED state enumeration.
+ */
+typedef enum {
+    LED_OFF = 0,    /**< LED is OFF */
+    LED_ON  = 1     /**< LED is ON  */
+} led_state_t;
+
+/**
  * @brief LED Configuration Structure.
  */
 typedef struct {
@@ -73,6 +81,16 @@ Std_ReturnType led_off(const led_config_t *led);
  * @return  E_OK if successful, E_NOT_OK otherwise.
  */
 Std_ReturnType led_toggle(const led_config_t *led);
+
+/**
+ * @brief   Get the current LED state (reads the output latch, LAT).
+ * @details Accounts for the active mode: an active-low LED is ON when
+ *          its pin is LOW.
+ * @param   led    Pointer to LED configuration.
+ * @param   state  Pointer to store the state (@ref led_state_t).
+ * @return  E_OK if successful, E_NOT_OK otherwise.
+ */
+Std_ReturnType led_get_state(const led_config_t *led, led_state_t *state);
 
 #endif /* LED_MODULE_ENABLE */
 #endif /* ECU_LED_H */

@@ -96,4 +96,26 @@ Std_ReturnType led_toggle(const led_config_t *led) {
     return ret;
 }
 
+/**
+ * @brief Get LED state (from LAT, active-mode aware).
+ */
+Std_ReturnType led_get_state(const led_config_t *led, led_state_t *state) {
+    Std_ReturnType ret = E_OK;
+
+    if ((NULL == led) || (NULL == state)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        logic_t latch = GPIO_LOW;
+
+        ret = gpio_pin_read_latch((port_index_t)led->port, (pin_index_t)led->pin, &latch);
+        if (E_OK == ret) {
+            *state = (latch == ((led->active == LED_ACTIVE_HIGH_MODE) ? GPIO_HIGH : GPIO_LOW)) ?
+                     LED_ON : LED_OFF;
+        }
+    }
+
+    return ret;
+}
+
 #endif /* LED_MODULE_ENABLE */
