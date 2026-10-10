@@ -99,10 +99,10 @@ pic18-embedded-drivers/
 
 - 🧱 **Layered architecture**: Config, Common, MCAL, ECU, Application.
 - 🎛️ **Configuration pattern**: enable/disable any module from `device_config.h`.
-- 🔁 **Dual GPIO APIs**: struct-based (`pin_config_t`) and direct (`port, pin`) calls. The Struct API is a thin wrapper over the Direct API, so validation lives in **one** place.
+- 🔁 **Dual GPIO APIs**: struct-based (`pin_config_t`) and direct (`port, pin`) calls. The two APIs are **fully independent**: each has its own validation and register access, and either one can be enabled alone.
 - 🎚️ **Smart analog/digital selection**: pin → ANx lookup table; the driver computes the minimal `ADCON1.PCFG` threshold for the pins you request, and `gpio_pin_setup()` makes pins digital automatically.
 - 🔼 **PORTB weak pull-ups**: one call, no external resistors for buttons.
-- 🎯 **Pin-aware port operations**: port writes never touch non-existent pins (RE3–RE7), and port toggle only flips **output** pins.
+- 🎯 **Pin-aware port operations**: port writes never touch non-existent pins (RE3–RE7), and port toggle flips every existing pin's LAT bit (inputs take the new value when they become outputs).
 - 🔒 **Encapsulated registers**: file-local `static volatile uint8 * const` register tables.
 - 🛡️ **Defensive programming**: NULL-pointer protection and range checking on every parameter.
 - ⚡ **Fast register access**: TRIS/LAT/PORT register arrays.
@@ -120,7 +120,7 @@ pic18-embedded-drivers/
 | Init | `gpio_init()` |
 | Pin (Direct) | `gpio_pin_setup`, `gpio_pin_set_direction`, `gpio_pin_get_direction`, `gpio_pin_write`, `gpio_pin_read`, `gpio_pin_read_latch`, `gpio_pin_toggle`, `gpio_pin_deinit` |
 | Port (Direct) | `gpio_port_setup`, `gpio_port_set_direction`, `gpio_port_get_direction`, `gpio_port_write`, `gpio_port_read`, `gpio_port_toggle` |
-| Pin (Struct) | `gpio_pin_initialize`, `gpio_pin_direction_initialize`, `gpio_pin_get_direction_status`, `gpio_pin_write_logic`, `gpio_pin_read_logic`, `gpio_pin_toggle_logic`, `gpio_pin_deinitialize` |
+| Pin (Struct) | `gpio_pin_initialize`, `gpio_pin_direction_initialize`, `gpio_pin_get_direction_status`, `gpio_pin_write_logic`, `gpio_pin_read_logic`, `gpio_pin_read_latch_logic`, `gpio_pin_toggle_logic`, `gpio_pin_deinitialize` |
 | Port (Struct) | `gpio_port_initialize`, `gpio_port_direction_initialize`, `gpio_port_get_direction_status`, `gpio_port_write_logic`, `gpio_port_read_logic`, `gpio_port_toggle_logic` |
 | Analog / Digital | `gpio_pin_set_analog`, `gpio_pin_set_digital`, `gpio_pin_is_analog` |
 | Pull-ups | `gpio_portb_pullup_enable`, `gpio_portb_pullup_disable` |
@@ -204,7 +204,7 @@ All features are controlled from **`Config/device_config.h`**:
 
 #define GPIO_MODULE_ENABLE         CONFIG_ENABLE
 #define GPIO_STRUCT_API_ENABLE     CONFIG_ENABLE
-#define GPIO_DIRECT_API_ENABLE     CONFIG_ENABLE   /* required by STRUCT API */
+#define GPIO_DIRECT_API_ENABLE     CONFIG_ENABLE   /* independent of STRUCT API */
 #define GPIO_ANALOG_CONFIG_ENABLE  CONFIG_ENABLE
 #define GPIO_INIT_ALL_DIGITAL      CONFIG_ENABLE
 #define GPIO_PORTB_PULLUP_ENABLE   CONFIG_ENABLE
@@ -213,6 +213,8 @@ All features are controlled from **`Config/device_config.h`**:
 #define BUTTON_MODULE_ENABLE       CONFIG_DISABLE
 #define ADC_MODULE_ENABLE          CONFIG_DISABLE
 ```
+
+**Independent APIs:** `GPIO_STRUCT_API_ENABLE` and `GPIO_DIRECT_API_ENABLE` can be enabled together or alone. Each has its own validation and register access. Shared low-level parts (register tables, valid-pin masks, analog/digital and pull-up support) are compiled whenever `GPIO_MODULE_ENABLE` is on. The LED driver automatically uses the Direct API if it is enabled, otherwise the Struct API.
 
 Invalid combinations fail at compile time:
 
@@ -256,8 +258,8 @@ The demo cycles Red → Green → Blue every 500 ms.
 - **نقطة تحكم واحدة:** كل الموديولات بتتفعّل أو تتقفل من `Config/device_config.h`.
 - **أسلوب AUTOSAR:** كل دالة بترجع `Std_ReturnType`، وفيه حماية من الـ NULL Pointers وفحص لكل البارامترات.
 - **توثيق كامل بـ Doxygen** لكل دالة وكل نوع.
-- **من غير تكرار:** الـ Struct API مجرد غلاف فوق الـ Direct API، فالتحقق من البارامترات مكتوب في مكان واحد بس.
-- **عمليات البورت ذكية:** مش بتلمس البنات اللي مش موجودة زي RE3–RE7، والـ toggle بيقلب بنات الـ Output بس.
+- **APIين مستقلين تماماً:** الـ Struct API والـ Direct API كل واحد منهم ليه التحقق بتاعه وبيتعامل مع الريجسترات بنفسه، وتقدر تفعّل أي واحد فيهم لوحده. أما الأجزاء المشتركة زي جداول الريجسترات وماسك البنات الموجودة ودوال الـ Analog والـ Pull-up، فبتشتغل طول ما الـ GPIO متفعّل.
+- **عمليات البورت ذكية:** مش بتلمس البنات اللي مش موجودة زي RE3–RE7، والـ toggle بيقلب الـ LAT لكل البنات الموجودة. البن الـ Input مش بيتأثر غير لما يتحول Output.
 
 ### حالة الدرايفرز
 - ✅ **GPIO** و **LED** خلصوا.

@@ -9,9 +9,10 @@
  *
  * @details
  * This file contains the implementation of the GPIO driver for PIC18F4620.
- * It supports two API styles: Struct-based and Direct. All validation and
- * register access lives in the Direct API; the Struct API only unpacks
- * pin_config_t and forwards the call (single source of truth).
+ * It supports two INDEPENDENT API styles: Struct-based and Direct. Each one
+ * has its own validation and register access and can be enabled alone.
+ * Shared low-level pieces (register tables, valid-pin masks, analog/pull-up
+ * support) are compiled whenever GPIO_MODULE_ENABLE is on.
  *
  * @note
  * - Register arrays provide fast O(1) lookup for register addresses.
@@ -153,6 +154,40 @@ static Std_ReturnType gpio_pin_make_digital(port_index_t port, pin_index_t pin) 
 #endif /* GPIO_ANALOG_CONFIG_ENABLE */
 
 /* =========================================================================
+ * Shared Low-Level Helpers (used by BOTH APIs, no API depends on the other)
+ * ========================================================================= */
+
+/**
+ * @brief Make a pin digital before using it as digital I/O, unless the ADC
+ *        module is enabled and the pin was requested analog (best effort).
+ */
+static inline void gpio_pin_auto_digital(port_index_t port, pin_index_t pin) {
+#if GPIO_ANALOG_CONFIG_ENABLE == CONFIG_ENABLE
+    uint8 channel = analog_channel_map[port][pin];
+
+    if (GPIO_NO_ANALOG_CHANNEL != channel) {
+    #if ADC_MODULE_ENABLE == CONFIG_ENABLE
+        if (!(analog_request_mask & (uint16)BIT_VALUE(channel)))
+    #endif
+        {
+            (void)gpio_pin_make_digital(port, pin);
+        }
+    }
+#else
+    UNUSED(port);
+    UNUSED(pin);
+#endif
+}
+
+/**
+ * @brief Write only the physically present bits of a port register.
+ */
+static inline void gpio_reg_write_masked(volatile uint8 * const reg, port_index_t port, uint8 value) {
+    uint8 valid = port_valid_pin_mask[port];
+    *reg = (uint8)((*reg & (uint8)~valid) | (value & valid));
+}
+
+/* =========================================================================
  * Driver Initialization
  * ========================================================================= */
 
@@ -189,19 +224,9 @@ Std_ReturnType gpio_pin_setup(port_index_t port,
         ret = E_NOT_OK;
     }
     else {
-#if GPIO_ANALOG_CONFIG_ENABLE == CONFIG_ENABLE
         /* -------- Step 0: Digital mode (unless ADC claimed the pin) -------- */
-        uint8 channel = analog_channel_map[port][pin];
-    #if ADC_MODULE_ENABLE == CONFIG_ENABLE
-        if ((GPIO_NO_ANALOG_CHANNEL == channel) ||
-            !(analog_request_mask & (uint16)BIT_VALUE(channel)))
-    #endif
-        {
-            if (GPIO_NO_ANALOG_CHANNEL != channel) {
-                (void)gpio_pin_make_digital(port, pin);   /* best effort */
-            }
-        }
-#endif
+        gpio_pin_auto_digital(port, pin);
+
         /* -------- Step 1: Initial Logic first (glitch-free output) -------- */
         if (GPIO_DIRECTION_OUTPUT == direction) {
             if (GPIO_HIGH == logic) {
@@ -352,10 +377,14 @@ Std_ReturnType gpio_pin_deinit(port_index_t port, pin_index_t pin) {
  * @brief Setup a port completely (valid pins only).
  */
 Std_ReturnType gpio_port_setup(port_index_t port, uint8 direction_mask, uint8 initial_value) {
-    Std_ReturnType ret = gpio_port_write(port, initial_value);   /* latch first */
+    Std_ReturnType ret = E_OK;
 
-    if (E_OK == ret) {
-        ret = gpio_port_set_direction(port, direction_mask);
+    if (!IS_VALID_PORT(port)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        gpio_reg_write_masked(lat_registers[port],  port, initial_value);   /* latch first */
+        gpio_reg_write_masked(tris_registers[port], port, direction_mask);
     }
 
     return ret;
@@ -371,9 +400,7 @@ Std_ReturnType gpio_port_set_direction(port_index_t port, uint8 direction_mask) 
         ret = E_NOT_OK;
     }
     else {
-        uint8 valid = port_valid_pin_mask[port];
-        *(tris_registers[port]) = (uint8)((*(tris_registers[port]) & (uint8)~valid) |
-                                          (direction_mask & valid));
+        gpio_reg_write_masked(tris_registers[port], port, direction_mask);
     }
 
     return ret;
@@ -408,9 +435,7 @@ Std_ReturnType gpio_port_write(port_index_t port, uint8 logic_mask) {
         ret = E_NOT_OK;
     }
     else {
-        uint8 valid = port_valid_pin_mask[port];
-        *(lat_registers[port]) = (uint8)((*(lat_registers[port]) & (uint8)~valid) |
-                                         (logic_mask & valid));
+        gpio_reg_write_masked(lat_registers[port], port, logic_mask);
     }
 
     return ret;
@@ -436,7 +461,9 @@ Std_ReturnType gpio_port_read(port_index_t port, uint8 *logic) {
 }
 
 /**
- * @brief Toggle only the OUTPUT pins of a port (mask with ~TRIS).
+ * @brief Toggle all existing pins of a port (LAT).
+ * @note  Toggling the LAT bit of an input pin has no effect on the pin
+ *        until it becomes an output.
  */
 Std_ReturnType gpio_port_toggle(port_index_t port) {
     Std_ReturnType ret = E_OK;
@@ -445,8 +472,7 @@ Std_ReturnType gpio_port_toggle(port_index_t port) {
         ret = E_NOT_OK;
     }
     else {
-        uint8 output_pins = (uint8)(~(*(tris_registers[port])) & port_valid_pin_mask[port]);
-        *(lat_registers[port]) ^= output_pins;
+        *(lat_registers[port]) ^= port_valid_pin_mask[port];
     }
 
     return ret;
@@ -455,83 +481,303 @@ Std_ReturnType gpio_port_toggle(port_index_t port) {
 #endif /* GPIO_DIRECT_API_ENABLE */
 
 /* =========================================================================
- * ============ STRUCT-BASED API (thin wrappers over Direct API) ===========
+ * ============ STRUCT-BASED API IMPLEMENTATION (independent) ==============
  * ========================================================================= */
 
 #if GPIO_STRUCT_API_ENABLE == CONFIG_ENABLE
 
 #if GPIO_PORT_PIN_CONFIGURATIONS == CONFIG_ENABLE
 
-/** @brief Unpack port index from a pin_config_t */
-#define CFG_PORT(cfg)   ((port_index_t)((cfg)->port))
-/** @brief Unpack pin index from a pin_config_t */
-#define CFG_PIN(cfg)    ((pin_index_t)((cfg)->pin))
-
+/**
+ * @brief Initialize pin direction only.
+ */
 Std_ReturnType gpio_pin_direction_initialize(const pin_config_t *_pin_config) {
-    return (NULL == _pin_config) ? E_NOT_OK :
-           gpio_pin_set_direction(CFG_PORT(_pin_config), CFG_PIN(_pin_config),
-                                  (direction_t)_pin_config->direction);
+    Std_ReturnType ret = E_OK;
+
+    if (NULL == _pin_config) {
+        ret = E_NOT_OK;
+    }
+    else if (!IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin) ||
+             !IS_VALID_DIRECTION(_pin_config->direction)) {
+        ret = E_NOT_OK;
+    }
+    else if (GPIO_DIRECTION_OUTPUT == _pin_config->direction) {
+        CLEAR_BIT(*(tris_registers[_pin_config->port]), _pin_config->pin);
+    }
+    else {
+        SET_BIT(*(tris_registers[_pin_config->port]), _pin_config->pin);
+    }
+
+    return ret;
 }
 
+/**
+ * @brief Get current pin direction.
+ */
 Std_ReturnType gpio_pin_get_direction_status(const pin_config_t *_pin_config,
                                               direction_t *direction_status) {
-    return (NULL == _pin_config) ? E_NOT_OK :
-           gpio_pin_get_direction(CFG_PORT(_pin_config), CFG_PIN(_pin_config), direction_status);
+    Std_ReturnType ret = E_OK;
+
+    if ((NULL == _pin_config) || (NULL == direction_status)) {
+        ret = E_NOT_OK;
+    }
+    else if (!IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        *direction_status = (READ_BIT(*(tris_registers[_pin_config->port]), _pin_config->pin) == 0) ?
+                            GPIO_DIRECTION_OUTPUT : GPIO_DIRECTION_INPUT;
+    }
+
+    return ret;
 }
 
+/**
+ * @brief Write a logic value to a pin (LAT).
+ */
 Std_ReturnType gpio_pin_write_logic(const pin_config_t *_pin_config, logic_t logic) {
-    return (NULL == _pin_config) ? E_NOT_OK :
-           gpio_pin_write(CFG_PORT(_pin_config), CFG_PIN(_pin_config), logic);
+    Std_ReturnType ret = E_OK;
+
+    if (NULL == _pin_config) {
+        ret = E_NOT_OK;
+    }
+    else if (!IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin) || !IS_VALID_LOGIC(logic)) {
+        ret = E_NOT_OK;
+    }
+    else if (GPIO_HIGH == logic) {
+        SET_BIT(*(lat_registers[_pin_config->port]), _pin_config->pin);
+    }
+    else {
+        CLEAR_BIT(*(lat_registers[_pin_config->port]), _pin_config->pin);
+    }
+
+    return ret;
 }
 
+/**
+ * @brief Read a logic value from a pin (PORT).
+ */
 Std_ReturnType gpio_pin_read_logic(const pin_config_t *_pin_config, logic_t *logic) {
-    return (NULL == _pin_config) ? E_NOT_OK :
-           gpio_pin_read(CFG_PORT(_pin_config), CFG_PIN(_pin_config), logic);
+    Std_ReturnType ret = E_OK;
+
+    if ((NULL == _pin_config) || (NULL == logic)) {
+        ret = E_NOT_OK;
+    }
+    else if (!IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        *logic = (READ_BIT(*(port_registers[_pin_config->port]), _pin_config->pin) == 1) ?
+                 GPIO_HIGH : GPIO_LOW;
+    }
+
+    return ret;
 }
 
+/**
+ * @brief Read the output latch (LAT) of a pin.
+ */
+Std_ReturnType gpio_pin_read_latch_logic(const pin_config_t *_pin_config, logic_t *logic) {
+    Std_ReturnType ret = E_OK;
+
+    if ((NULL == _pin_config) || (NULL == logic)) {
+        ret = E_NOT_OK;
+    }
+    else if (!IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        *logic = (READ_BIT(*(lat_registers[_pin_config->port]), _pin_config->pin) == 1) ?
+                 GPIO_HIGH : GPIO_LOW;
+    }
+
+    return ret;
+}
+
+/**
+ * @brief Toggle the state of a pin (LAT).
+ */
 Std_ReturnType gpio_pin_toggle_logic(const pin_config_t *_pin_config) {
-    return (NULL == _pin_config) ? E_NOT_OK :
-           gpio_pin_toggle(CFG_PORT(_pin_config), CFG_PIN(_pin_config));
+    Std_ReturnType ret = E_OK;
+
+    if (NULL == _pin_config) {
+        ret = E_NOT_OK;
+    }
+    else if (!IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        TOGGLE_BIT(*(lat_registers[_pin_config->port]), _pin_config->pin);
+    }
+
+    return ret;
 }
 
+/**
+ * @brief Full pin initialization (digital mode + logic + direction).
+ */
 Std_ReturnType gpio_pin_initialize(const pin_config_t *_pin_config) {
-    return (NULL == _pin_config) ? E_NOT_OK :
-           gpio_pin_setup(CFG_PORT(_pin_config), CFG_PIN(_pin_config),
-                          (direction_t)_pin_config->direction,
-                          (logic_t)_pin_config->logic);
+    Std_ReturnType ret = E_OK;
+
+    if (NULL == _pin_config) {
+        ret = E_NOT_OK;
+    }
+    else if (!IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin) ||
+             !IS_VALID_DIRECTION(_pin_config->direction) ||
+             !IS_VALID_LOGIC(_pin_config->logic)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        port_index_t port = (port_index_t)_pin_config->port;
+        pin_index_t  pin  = (pin_index_t)_pin_config->pin;
+
+        /* Step 0: Digital mode (unless ADC claimed the pin) */
+        gpio_pin_auto_digital(port, pin);
+
+        /* Step 1: Latch first, then direction (glitch-free output) */
+        if (GPIO_HIGH == _pin_config->logic) {
+            SET_BIT(*(lat_registers[port]), pin);
+        } else {
+            CLEAR_BIT(*(lat_registers[port]), pin);
+        }
+
+        if (GPIO_DIRECTION_OUTPUT == _pin_config->direction) {
+            CLEAR_BIT(*(tris_registers[port]), pin);
+        } else {
+            SET_BIT(*(tris_registers[port]), pin);
+        }
+    }
+
+    return ret;
 }
 
+/**
+ * @brief Reset pin to default state (Input, LOW).
+ */
 Std_ReturnType gpio_pin_deinitialize(const pin_config_t *_pin_config) {
-    return (NULL == _pin_config) ? E_NOT_OK :
-           gpio_pin_deinit(CFG_PORT(_pin_config), CFG_PIN(_pin_config));
+    Std_ReturnType ret = E_OK;
+
+    if (NULL == _pin_config) {
+        ret = E_NOT_OK;
+    }
+    else if (!IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        SET_BIT(*(tris_registers[_pin_config->port]), _pin_config->pin);
+        CLEAR_BIT(*(lat_registers[_pin_config->port]), _pin_config->pin);
+    }
+
+    return ret;
 }
 
 #endif /* GPIO_PORT_PIN_CONFIGURATIONS */
 
 #if GPIO_PORT_CONFIGURATIONS == CONFIG_ENABLE
 
+/**
+ * @brief Initialize port direction (existing pins only).
+ */
 Std_ReturnType gpio_port_direction_initialize(port_index_t port, uint8 direction_mask) {
-    return gpio_port_set_direction(port, direction_mask);
+    Std_ReturnType ret = E_OK;
+
+    if (!IS_VALID_PORT(port)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        gpio_reg_write_masked(tris_registers[port], port, direction_mask);
+    }
+
+    return ret;
 }
 
+/**
+ * @brief Get port direction status (non-existent pins read as 0).
+ */
 Std_ReturnType gpio_port_get_direction_status(port_index_t port, uint8 *direction_status) {
-    return gpio_port_get_direction(port, direction_status);
+    Std_ReturnType ret = E_OK;
+
+    if (NULL == direction_status) {
+        ret = E_NOT_OK;
+    }
+    else if (!IS_VALID_PORT(port)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        *direction_status = (uint8)(*(tris_registers[port]) & port_valid_pin_mask[port]);
+    }
+
+    return ret;
 }
 
+/**
+ * @brief Write 8-bit value to a port (existing pins only).
+ */
 Std_ReturnType gpio_port_write_logic(port_index_t port, uint8 logic_mask) {
-    return gpio_port_write(port, logic_mask);
+    Std_ReturnType ret = E_OK;
+
+    if (!IS_VALID_PORT(port)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        gpio_reg_write_masked(lat_registers[port], port, logic_mask);
+    }
+
+    return ret;
 }
 
+/**
+ * @brief Read 8-bit value from a port (non-existent pins read as 0).
+ */
 Std_ReturnType gpio_port_read_logic(port_index_t port, uint8 *logic) {
-    return gpio_port_read(port, logic);
+    Std_ReturnType ret = E_OK;
+
+    if (NULL == logic) {
+        ret = E_NOT_OK;
+    }
+    else if (!IS_VALID_PORT(port)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        *logic = (uint8)(*(port_registers[port]) & port_valid_pin_mask[port]);
+    }
+
+    return ret;
 }
 
+/**
+ * @brief Toggle all existing pins of a port (LAT).
+ * @note  Toggling the LAT bit of an input pin has no effect on the pin
+ *        until it becomes an output.
+ */
 Std_ReturnType gpio_port_toggle_logic(port_index_t port) {
-    return gpio_port_toggle(port);
+    Std_ReturnType ret = E_OK;
+
+    if (!IS_VALID_PORT(port)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        *(lat_registers[port]) ^= port_valid_pin_mask[port];
+    }
+
+    return ret;
 }
 
+/**
+ * @brief Full port initialization (latch first, then direction).
+ */
 Std_ReturnType gpio_port_initialize(port_index_t port, uint8 direction_mask, uint8 initial_value) {
-    return gpio_port_setup(port, direction_mask, initial_value);
+    Std_ReturnType ret = E_OK;
+
+    if (!IS_VALID_PORT(port)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        gpio_reg_write_masked(lat_registers[port],  port, initial_value);
+        gpio_reg_write_masked(tris_registers[port], port, direction_mask);
+    }
+
+    return ret;
 }
 
 #endif /* GPIO_PORT_CONFIGURATIONS */

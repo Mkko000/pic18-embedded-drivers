@@ -14,8 +14,8 @@
  * - **Struct-Based API**: Uses pin_config_t for organized pin management.
  * - **Direct API**: Uses simple parameter passing for quick operations.
  *
- * Both APIs can be enabled/disabled from device_config.h. The Struct API
- * is a thin wrapper over the Direct API, so validation lives in one place.
+ * Both APIs are fully independent: each can be enabled alone or together
+ * from device_config.h.
  *
  * Extras: analog/digital pin selection (ADCON1 PCFG) and PORTB pull-ups.
  *
@@ -167,7 +167,7 @@ typedef struct {
 Std_ReturnType gpio_init(void);
 
 /* =========================================================================
- * Section: Direct API (core implementation - validation lives here)
+ * Section: Direct API (independent)
  * ========================================================================= */
 
 #if GPIO_DIRECT_API_ENABLE == CONFIG_ENABLE
@@ -262,7 +262,9 @@ Std_ReturnType gpio_port_write(port_index_t port, uint8 logic_mask);
 Std_ReturnType gpio_port_read(port_index_t port, uint8 *logic);
 
 /**
- * @brief   Toggle the OUTPUT pins of a port (input pins are not touched).
+ * @brief   Toggle all existing pins of a port (LAT).
+ * @note    Toggling the LAT bit of an input pin has no effect on the pin
+ *          until it becomes an output.
  * @return  E_OK if successful, E_NOT_OK otherwise.
  */
 Std_ReturnType gpio_port_toggle(port_index_t port);
@@ -270,7 +272,7 @@ Std_ReturnType gpio_port_toggle(port_index_t port);
 #endif /* GPIO_DIRECT_API_ENABLE */
 
 /* =========================================================================
- * Section: Struct-Based API (thin wrappers over the Direct API)
+ * Section: Struct-Based API (independent)
  * ========================================================================= */
 
 #if GPIO_STRUCT_API_ENABLE == CONFIG_ENABLE
@@ -302,6 +304,12 @@ Std_ReturnType gpio_pin_write_logic(const pin_config_t *_pin_config, logic_t log
  * @return  E_OK if successful, E_NOT_OK otherwise.
  */
 Std_ReturnType gpio_pin_read_logic(const pin_config_t *_pin_config, logic_t *logic);
+
+/**
+ * @brief   Read the output latch (LAT) of a pin.
+ * @return  E_OK if successful, E_NOT_OK otherwise.
+ */
+Std_ReturnType gpio_pin_read_latch_logic(const pin_config_t *_pin_config, logic_t *logic);
 
 /**
  * @brief   Toggle the state of a pin.
@@ -337,7 +345,11 @@ Std_ReturnType gpio_port_write_logic(port_index_t port, uint8 logic_mask);
 /** @brief Read 8-bit value from a port. */
 Std_ReturnType gpio_port_read_logic(port_index_t port, uint8 *logic);
 
-/** @brief Toggle the output pins of a port. */
+/**
+ * @brief Toggle all existing pins of a port (LAT).
+ * @note  Toggling the LAT bit of an input pin has no effect on the pin
+ *        until it becomes an output.
+ */
 Std_ReturnType gpio_port_toggle_logic(port_index_t port);
 
 /** @brief Full port initialization. */

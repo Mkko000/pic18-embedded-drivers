@@ -13,8 +13,46 @@
 
 #if LED_MODULE_ENABLE == CONFIG_ENABLE
 
+/* =========================================================================
+ * GPIO API Selection (prefer Direct API, fall back to Struct API)
+ * ========================================================================= */
+#if GPIO_DIRECT_API_ENABLE == CONFIG_ENABLE
+    #define LED_USE_GPIO_DIRECT_API
+#endif
+
+#ifndef LED_USE_GPIO_DIRECT_API
 /**
- * @brief Initialize an LED pin.
+ * @brief Build a pin_config_t for the Struct API from an LED config.
+ */
+static inline pin_config_t led_to_pin_config(const led_config_t *led, logic_t logic) {
+    pin_config_t cfg;
+    cfg.port      = led->port;
+    cfg.pin       = led->pin;
+    cfg.direction = GPIO_DIRECTION_OUTPUT;
+    cfg.logic     = logic;
+    return cfg;
+}
+#endif
+
+/** @brief Logic level that turns the LED ON for its active mode. */
+#define LED_ON_LOGIC(led)   (((led)->active == LED_ACTIVE_HIGH_MODE) ? GPIO_HIGH : GPIO_LOW)
+/** @brief Logic level that turns the LED OFF for its active mode. */
+#define LED_OFF_LOGIC(led)  (((led)->active == LED_ACTIVE_HIGH_MODE) ? GPIO_LOW : GPIO_HIGH)
+
+/**
+ * @brief Internal: write a logic level to the LED pin with the enabled API.
+ */
+static Std_ReturnType led_write(const led_config_t *led, logic_t logic) {
+#ifdef LED_USE_GPIO_DIRECT_API
+    return gpio_pin_write((port_index_t)led->port, (pin_index_t)led->pin, logic);
+#else
+    pin_config_t cfg = led_to_pin_config(led, logic);
+    return gpio_pin_write_logic(&cfg, logic);
+#endif
+}
+
+/**
+ * @brief Initialize an LED pin (output, OFF).
  */
 Std_ReturnType led_initialize(const led_config_t *led) {
     Std_ReturnType ret = E_OK;
@@ -23,15 +61,13 @@ Std_ReturnType led_initialize(const led_config_t *led) {
         ret = E_NOT_OK;
     }
     else {
-        /* Determine initial logic based on active mode */
-        logic_t initial_logic = (led->active == LED_ACTIVE_HIGH_MODE) ?
-                                 GPIO_LOW : GPIO_HIGH;
-
-        /* Use Direct API - one call */
-        ret = gpio_pin_setup((port_index_t)led->port,
-                              (pin_index_t)led->pin,
-                              GPIO_DIRECTION_OUTPUT,
-                              initial_logic);
+#ifdef LED_USE_GPIO_DIRECT_API
+        ret = gpio_pin_setup((port_index_t)led->port, (pin_index_t)led->pin,
+                              GPIO_DIRECTION_OUTPUT, LED_OFF_LOGIC(led));
+#else
+        pin_config_t cfg = led_to_pin_config(led, LED_OFF_LOGIC(led));
+        ret = gpio_pin_initialize(&cfg);
+#endif
     }
 
     return ret;
@@ -41,42 +77,14 @@ Std_ReturnType led_initialize(const led_config_t *led) {
  * @brief Turn LED ON.
  */
 Std_ReturnType led_on(const led_config_t *led) {
-    Std_ReturnType ret = E_OK;
-
-    if (NULL == led) {
-        ret = E_NOT_OK;
-    }
-    else {
-        logic_t logic = (led->active == LED_ACTIVE_HIGH_MODE) ?
-                         GPIO_HIGH : GPIO_LOW;
-
-        ret = gpio_pin_write((port_index_t)led->port,
-                              (pin_index_t)led->pin,
-                              logic);
-    }
-
-    return ret;
+    return (NULL == led) ? E_NOT_OK : led_write(led, LED_ON_LOGIC(led));
 }
 
 /**
  * @brief Turn LED OFF.
  */
 Std_ReturnType led_off(const led_config_t *led) {
-    Std_ReturnType ret = E_OK;
-
-    if (NULL == led) {
-        ret = E_NOT_OK;
-    }
-    else {
-        logic_t logic = (led->active == LED_ACTIVE_HIGH_MODE) ?
-                         GPIO_LOW : GPIO_HIGH;
-
-        ret = gpio_pin_write((port_index_t)led->port,
-                              (pin_index_t)led->pin,
-                              logic);
-    }
-
-    return ret;
+    return (NULL == led) ? E_NOT_OK : led_write(led, LED_OFF_LOGIC(led));
 }
 
 /**
@@ -89,8 +97,12 @@ Std_ReturnType led_toggle(const led_config_t *led) {
         ret = E_NOT_OK;
     }
     else {
-        ret = gpio_pin_toggle((port_index_t)led->port,
-                               (pin_index_t)led->pin);
+#ifdef LED_USE_GPIO_DIRECT_API
+        ret = gpio_pin_toggle((port_index_t)led->port, (pin_index_t)led->pin);
+#else
+        pin_config_t cfg = led_to_pin_config(led, GPIO_LOW);
+        ret = gpio_pin_toggle_logic(&cfg);
+#endif
     }
 
     return ret;
@@ -108,10 +120,14 @@ Std_ReturnType led_get_state(const led_config_t *led, led_state_t *state) {
     else {
         logic_t latch = GPIO_LOW;
 
+#ifdef LED_USE_GPIO_DIRECT_API
         ret = gpio_pin_read_latch((port_index_t)led->port, (pin_index_t)led->pin, &latch);
+#else
+        pin_config_t cfg = led_to_pin_config(led, GPIO_LOW);
+        ret = gpio_pin_read_latch_logic(&cfg, &latch);
+#endif
         if (E_OK == ret) {
-            *state = (latch == ((led->active == LED_ACTIVE_HIGH_MODE) ? GPIO_HIGH : GPIO_LOW)) ?
-                     LED_ON : LED_OFF;
+            *state = (latch == LED_ON_LOGIC(led)) ? LED_ON : LED_OFF;
         }
     }
 
