@@ -21,7 +21,7 @@ Eight LEDs on **PORTC** play a playlist of lighting effects. The effects are sto
 | RC0 … RC7 | LED0 … LED7 → 330 Ω → GND |
 
 ## ⚙️ How it works
-- `gpio_init()` makes all pins digital, then `gpio_port_setup(PORTC_INDEX, 0x00, 0x00)` sets PORTC as all outputs, starting low.
+- `gpio_init()` makes all pins digital, then `gpio_port_setup(PORTC_INDEX, GPIO_PORT_ALL_OUTPUT, GPIO_PORT_ALL_LOW)` sets PORTC as all outputs, starting low.
 - Each `effect_t` holds `{frames, count, step (×10 ms), repeat}`.
 - `play_effect()` writes each frame with `gpio_port_write()`.
 

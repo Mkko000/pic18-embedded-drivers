@@ -102,7 +102,7 @@ void main(void) {
     uint8 e;
 
     (void)gpio_init();                                      /* all digital  */
-    (void)gpio_port_setup(PORTC_INDEX, 0x00, 0x00);         /* PORTC output */
+    (void)gpio_port_setup(PORTC_INDEX, GPIO_PORT_ALL_OUTPUT, GPIO_PORT_ALL_LOW);  /* PORTC output */
 
     while (1) {
         for (e = 0; e < COUNT_OF(effects); e++) {

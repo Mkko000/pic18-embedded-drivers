@@ -77,6 +77,33 @@
 /** @brief Bit mask of the physical pins on PORTE (RE0-RE2) */
 #define PORTE_VALID_PIN_MASK        ((uint8)0x07)
 
+/* -------- Port Mask Constants (for gpio_port_* masks) -------- */
+
+/** @brief Direction mask: all pins of the port are outputs (TRIS = 0). */
+#define GPIO_PORT_ALL_OUTPUT        ((uint8)0x00)
+
+/** @brief Direction mask: all pins of the port are inputs (TRIS = 1). */
+#define GPIO_PORT_ALL_INPUT         ((uint8)0xFF)
+
+/** @brief Logic mask: all pins LOW. */
+#define GPIO_PORT_ALL_LOW           ((uint8)0x00)
+
+/** @brief Logic mask: all pins HIGH. */
+#define GPIO_PORT_ALL_HIGH          ((uint8)0xFF)
+
+/**
+ * @brief Single-pin masks for composing port masks.
+ * @code  gpio_port_setup(PORTD_INDEX, GPIO_PIN0_MASK | GPIO_PIN3_MASK, GPIO_PORT_ALL_LOW); @endcode
+ */
+#define GPIO_PIN0_MASK              ((uint8)0x01)   /**< Bit 0 (1 << 0) */
+#define GPIO_PIN1_MASK              ((uint8)0x02)   /**< Bit 1 (1 << 1) */
+#define GPIO_PIN2_MASK              ((uint8)0x04)   /**< Bit 2 (1 << 2) */
+#define GPIO_PIN3_MASK              ((uint8)0x08)   /**< Bit 3 (1 << 3) */
+#define GPIO_PIN4_MASK              ((uint8)0x10)   /**< Bit 4 (1 << 4) */
+#define GPIO_PIN5_MASK              ((uint8)0x20)   /**< Bit 5 (1 << 5) */
+#define GPIO_PIN6_MASK              ((uint8)0x40)   /**< Bit 6 (1 << 6) */
+#define GPIO_PIN7_MASK              ((uint8)0x80)   /**< Bit 7 (1 << 7) */
+
 /** @brief Marker for a pin that has no analog (ANx) function */
 #define GPIO_NO_ANALOG_CHANNEL      ((uint8)0xFF)
 

@@ -141,6 +141,7 @@ GPIO-only projects you can build on top of the drivers. Each one is self-contain
 | Port (Struct) | `gpio_port_initialize`, `gpio_port_direction_initialize`, `gpio_port_get_direction_status`, `gpio_port_write_logic`, `gpio_port_read_logic`, `gpio_port_toggle_logic` |
 | Analog / Digital | `gpio_pin_set_analog`, `gpio_pin_set_digital`, `gpio_pin_is_analog` |
 | Pull-ups | `gpio_portb_pullup_enable`, `gpio_portb_pullup_disable` |
+| Mask constants | `GPIO_PORT_ALL_OUTPUT`, `GPIO_PORT_ALL_INPUT`, `GPIO_PORT_ALL_LOW`, `GPIO_PORT_ALL_HIGH`, `GPIO_PIN0_MASK` … `GPIO_PIN7_MASK` |
 
 ### LED (ECU)
 
@@ -207,6 +208,11 @@ logic_t state;
 gpio_portb_pullup_enable();
 gpio_pin_setup(PORTB_INDEX, GPIO_PIN0, GPIO_DIRECTION_INPUT, GPIO_LOW);
 gpio_pin_read(PORTB_INDEX, GPIO_PIN0, &state);
+
+/* PORTD: RD0-RD3 outputs, RD4-RD7 inputs, all outputs start LOW */
+gpio_port_setup(PORTD_INDEX,
+                GPIO_PIN4_MASK | GPIO_PIN5_MASK | GPIO_PIN6_MASK | GPIO_PIN7_MASK,
+                GPIO_PORT_ALL_LOW);
 
 /* Potentiometer on RA0 (AN0) */
 gpio_pin_set_analog(PORTA_INDEX, GPIO_PIN0);

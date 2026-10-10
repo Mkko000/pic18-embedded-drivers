@@ -114,8 +114,8 @@ void main(void) {
     boolean_t  in_emergency = FALSE;
 
     (void)gpio_init();
-    (void)gpio_port_setup(NS_PORT, 0xC0, 0x00);     /* RC0-RC5 outputs */
-    (void)gpio_port_setup(EW_PORT, 0xC0, 0x00);     /* RD0-RD5 outputs */
+    (void)gpio_port_setup(NS_PORT, GPIO_PIN6_MASK | GPIO_PIN7_MASK, GPIO_PORT_ALL_LOW);  /* RC0-RC5 outputs */
+    (void)gpio_port_setup(EW_PORT, GPIO_PIN6_MASK | GPIO_PIN7_MASK, GPIO_PORT_ALL_LOW);  /* RD0-RD5 outputs */
     (void)gpio_portb_pullup_enable();
     (void)gpio_pin_setup(EMERGENCY_PORT, EMERGENCY_PIN, GPIO_DIRECTION_INPUT, GPIO_LOW);
 

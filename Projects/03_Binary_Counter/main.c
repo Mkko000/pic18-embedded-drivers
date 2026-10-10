@@ -100,7 +100,7 @@ void main(void) {
     uint8 i;
 
     (void)gpio_init();
-    (void)gpio_port_setup(DISPLAY_PORT, 0x00, 0x00);
+    (void)gpio_port_setup(DISPLAY_PORT, GPIO_PORT_ALL_OUTPUT, GPIO_PORT_ALL_LOW);
     (void)gpio_portb_pullup_enable();
     for (i = 0; i < BTN_COUNT; i++) {
         (void)gpio_pin_setup(BUTTON_PORT, buttons[i].pin, GPIO_DIRECTION_INPUT, GPIO_LOW);
