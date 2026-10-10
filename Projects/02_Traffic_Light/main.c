@@ -14,6 +14,9 @@
  * one constant table. Time advances in 50 ms ticks, so the Emergency button
  * is polled continuously (no long blocking delays).
  *
+ * Power-up: the controller starts in the "all red" clearance state and holds
+ * it for its full table duration (2 s) before the first green.
+ *
  * Emergency (RB0, active low, internal pull-up): while held, all heads go
  * RED and the yellow lamps flash. On release the cycle restarts from
  * "all red" for safety.
@@ -107,8 +110,8 @@ static boolean_t emergency_active(void) {
  * Main
  * ========================================================================= */
 void main(void) {
-    tl_state_t state       = ST_ALL_RED_2;   /* start safe: next = NS green */
-    uint16     ticks_left  = 0;
+    tl_state_t state       = ST_ALL_RED_2;   /* start safe: all red first   */
+    uint16     ticks_left  = tl_table[ST_ALL_RED_2].ticks;  /* full 2 s     */
     uint8      flash_timer = 0;
     boolean_t  flash_on    = FALSE;
     boolean_t  in_emergency = FALSE;
@@ -118,6 +121,7 @@ void main(void) {
     (void)gpio_port_setup(EW_PORT, GPIO_PIN6_MASK | GPIO_PIN7_MASK, GPIO_PORT_ALL_LOW);  /* RD0-RD5 outputs */
     (void)gpio_portb_pullup_enable();
     (void)gpio_pin_setup(EMERGENCY_PORT, EMERGENCY_PIN, GPIO_DIRECTION_INPUT, GPIO_LOW);
+    set_lamps(tl_table[state].ns, tl_table[state].ew);  /* power-up: all red  */
 
     while (1) {
         if (emergency_active()) {

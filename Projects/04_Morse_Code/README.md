@@ -1,6 +1,6 @@
 # 📡 04 · Morse Code Transmitter
 
-This project sends any text as **International Morse code** on an LED, and optionally a buzzer. The demo sends **"SOS"** and then **"MOHAMMED"**, over and over.
+This project sends any text as **International Morse code** on an LED, and optionally a buzzer. The demo sends **"SOS"** and then **"MOHAMMED"**, over and over, with an exact 7-unit word gap between messages.
 
 ## ⏱️ Timing (one constant: `UNIT_MS`)
 | Element | Units | @ 150 ms |

@@ -12,7 +12,9 @@
  * buzzer on the same pin). Symbols come from a lookup table, encoded as
  * strings of '.' and '-'. All timing derives from one UNIT constant:
  *   dot = 1, dash = 3, intra-symbol gap = 1, letter gap = 3, word gap = 7.
- * The demo sends "SOS" then "MOHAMMED" forever.
+ * The demo sends "SOS" then "MOHAMMED" forever, with an exact 7-unit word
+ * gap between messages (morse_send_string() already ends with the 3-unit
+ * letter gap, so main() adds only the remaining 4 units).
  *
  * @par Hardware:
  * - RD0: LED through 330R to GND (active high), optional buzzer via transistor
@@ -128,8 +130,8 @@ void main(void) {
 
     while (1) {
         morse_send_string("SOS");
-        wait_units(WORD_GAP_UNITS);
+        wait_units(WORD_GAP_UNITS - LETTER_GAP_UNITS);  /* 3 + 4 = 7 units */
         morse_send_string("MOHAMMED");
-        wait_units(WORD_GAP_UNITS);
+        wait_units(WORD_GAP_UNITS - LETTER_GAP_UNITS);  /* 3 + 4 = 7 units */
     }
 }

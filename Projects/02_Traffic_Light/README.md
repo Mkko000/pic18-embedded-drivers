@@ -19,6 +19,7 @@ To change the timing or the lamp outputs, edit `tl_table[]` only.
 - The loop runs in **50 ms ticks** and checks the button on every tick, so it reacts within about 50 ms. There are no long blocking delays.
 - While the button is held, all heads show **RED** and the **yellow lamps flash** at 1 Hz.
 - When the button is released, the cycle restarts from *all red* (the safe state).
+- At power-up the controller also starts in *all red* and holds it for the full 2 s before the first green.
 
 ## 🧰 Components
 - PIC18F4620 + 4 MHz crystal, 10 kΩ MCLR pull-up
