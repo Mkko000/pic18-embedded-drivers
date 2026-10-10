@@ -1,0 +1,49 @@
+# MPLAB X build outputs
+build/
+dist/
+debug/
+*.o
+*.d
+*.p1
+*.pre
+*.hex
+*.elf
+*.cof
+*.map
+*.lst
+*.sym
+*.obj
+*.sdb
+*.rlf
+*.cmf
+*.hxl
+*.as
+*.mum
+*.dep
+funclist
+disassembly/
+
+# MPLAB X private / generated project files
+nbproject/private/
+nbproject/Makefile-*
+nbproject/Package-*.bash
+Makefile-genesis.properties
+*.mk
+
+# Proteus backups / logs
+*.pdsbak
+*.workspace
+Last Loaded *.pdsbak
+
+# Doxygen output
+docs/html/
+docs/latex/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*~
