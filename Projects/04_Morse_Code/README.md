@@ -39,6 +39,7 @@ morse_send_string("HELLO WORLD");
 1. New **Standalone Project**, device **PIC18F4620**, compiler **XC8**.
 2. Add these files:
    - `Projects/04_Morse_Code/main.c`
+   - `Config/config_bits.c` (configuration bits, add exactly once)
    - `MCAL_Layer/GPIO/hal_gpio.c`
    - `ECU_Layer/LED/ecu_led.c`
 3. Add the include directory: the repository root (so the `../../` paths resolve), or keep the folder structure.

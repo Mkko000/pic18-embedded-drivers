@@ -31,6 +31,7 @@ Every 5 ms the program samples each button with `gpio_pin_read()` and passes it 
 1. New **Standalone Project**, device **PIC18F4620**, compiler **XC8**.
 2. Add these files:
    - `Projects/03_Binary_Counter/main.c`
+   - `Config/config_bits.c` (configuration bits, add exactly once)
    - `MCAL_Layer/GPIO/hal_gpio.c`
 3. Add the include directory: the repository root (so the `../../` paths resolve), or keep the folder structure.
 4. Check `Config/device_config.h`: `GPIO_MODULE_ENABLE`, `GPIO_DIRECT_API_ENABLE`, `GPIO_PORTB_PULLUP_ENABLE` must be `CONFIG_ENABLE`.

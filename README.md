@@ -52,7 +52,8 @@ flowchart TD
 pic18-embedded-drivers/
 ├── application.c              # Demo application + configuration bits
 ├── Config/
-│   └── device_config.h        # ⭐ Single point of configuration
+│   ├── device_config.h
+│   └── config_bits.c          # ⭐ Configuration bits (fuses) + oscillator selection        # ⭐ Single point of configuration
 ├── Common/
 │   ├── mcal_std_types.h       # Fixed-width types, Std_ReturnType, E_OK/E_NOT_OK
 │   ├── std_macros.h           # Bit manipulation & register-access macros
@@ -172,7 +173,7 @@ PIC18F4620 selects analog pins with `ADCON1<PCFG3:0>`, a **threshold** scheme (`
    git clone https://github.com/Mkko000/pic18-embedded-drivers.git
    ```
 2. In MPLAB X create a new **Standalone Project**, device **PIC18F4620**, compiler **XC8**.
-3. Add the source files (`application.c`, `hal_gpio.c`, `ecu_led.c`) and headers, keeping the folder structure.
+3. Add the source files (`application.c`, `Config/config_bits.c`, `hal_gpio.c`, `ecu_led.c`) and headers, keeping the folder structure. Add `config_bits.c` **exactly once**: it holds every `#pragma config`.
 4. Build (🔨) and flash the generated `.hex`, or load it into Proteus.
 
 ### Usage Example
@@ -230,6 +231,15 @@ All features are controlled from **`Config/device_config.h`**:
 #define ADC_MODULE_ENABLE          CONFIG_DISABLE
 ```
 
+**Oscillator & configuration bits:** every `#pragma config` lives in `Config/config_bits.c`. Pick the clock in `device_config.h`:
+
+```c
+#define _XTAL_FREQ   4000000UL      /* resulting CPU clock */
+#define OSC_MODE     OSC_MODE_HS    /* OSC_MODE_XT / HS / HSPLL / INTIO67 */
+```
+
+A compile-time check stops the build if `_XTAL_FREQ` doesn't fit the mode: HS needs 4–25 MHz, XT ≤ 4 MHz, HSPLL 16–40 MHz (4× the crystal), and INTIO67 must be one of the internal frequencies.
+
 **Independent APIs:** `GPIO_STRUCT_API_ENABLE` and `GPIO_DIRECT_API_ENABLE` can be enabled together or alone. Each has its own validation and register access. Shared low-level parts (register tables, valid-pin masks, analog/digital and pull-up support) are compiled whenever `GPIO_MODULE_ENABLE` is on. The LED driver automatically uses the Direct API if it is enabled, otherwise the Struct API.
 
 Invalid combinations fail at compile time:
@@ -281,6 +291,7 @@ The demo cycles Red → Green → Blue every 500 ms.
 - ✅ **GPIO** و **LED** خلصوا.
 - ✅ **إعداد Analog/Digital:** فيه جدول بيربط كل بن بقناة ANx، والدرايفر بيحسب أقل قيمة PCFG في ADCON1 تخلي البنات اللي طلبتها Analog. وخلي بالك إن ده نظام عتبة في الهاردوير، يعني القنوات اللي أقل منها هتبقى Analog هي كمان.
 - ✅ **Pull-ups الداخلية لـ PORTB:** تفعيل أو إلغاء بنداء واحد.
+- ✅ **الـ Configuration Bits:** كلها بقت في ملف واحد هو `Config/config_bits.c`، ونوع الأوسيليتر بتختاره من `OSC_MODE`. ضيف الملف ده مرة واحدة بس في كل مشروع.
 - ✅ **المشاريع:** فيه ٤ مشاريع شغالة بالـ GPIO بس: LED Chaser وإشارة مرور ٤ اتجاهات وعداد Binary وشفرة مورس. هتلاقيها في فولدر `Projects/`.
 - 🗓️ الجاي: Button، Interrupts، ADC، Timers، CCP/PWM، UART، SPI، I2C، LCD، Keypad، 7-Segment.
 

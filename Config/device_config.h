@@ -53,6 +53,22 @@
 #define _XTAL_FREQ          4000000UL
 
 /**
+ * @brief Oscillator Selection (used by Config/config_bits.c)
+ * @note  _XTAL_FREQ must always be the resulting CPU clock (Fosc):
+ *        - OSC_MODE_XT      : crystal <= 4 MHz
+ *        - OSC_MODE_HS      : crystal 4 - 25 MHz          (default)
+ *        - OSC_MODE_HSPLL   : crystal 4 - 10 MHz x 4 -> _XTAL_FREQ 16 - 40 MHz
+ *        - OSC_MODE_INTIO67 : internal block, RA6/RA7 free as I/O;
+ *                             _XTAL_FREQ = 31 kHz, 125/250/500 kHz, 1/2/4/8 MHz
+ *                             (select it at runtime with OSCCON.IRCF)
+ */
+#define OSC_MODE_XT         1
+#define OSC_MODE_HS         2
+#define OSC_MODE_HSPLL      3
+#define OSC_MODE_INTIO67    4
+#define OSC_MODE            OSC_MODE_HS
+
+/**
  * @brief Debug Mode Configuration
  * @note  Enables debug logging and printf statements.
  */

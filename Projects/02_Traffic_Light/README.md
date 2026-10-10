@@ -43,6 +43,7 @@ To change the timing or the lamp outputs, edit `tl_table[]` only.
 1. New **Standalone Project**, device **PIC18F4620**, compiler **XC8**.
 2. Add these files:
    - `Projects/02_Traffic_Light/main.c`
+   - `Config/config_bits.c` (configuration bits, add exactly once)
    - `MCAL_Layer/GPIO/hal_gpio.c`
 3. Add the include directory: the repository root (so the `../../` paths resolve), or keep the folder structure.
 4. Check `Config/device_config.h`: `GPIO_MODULE_ENABLE`, `GPIO_DIRECT_API_ENABLE`, `GPIO_PORTB_PULLUP_ENABLE` must be `CONFIG_ENABLE`.
