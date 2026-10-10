@@ -56,16 +56,23 @@
 /* -------- Range Check Macros -------- */
 
 /** @brief Check if port is valid (0-4) */
-#define IS_VALID_PORT(port)         ((port) <= PORTE_INDEX)
+#define IS_VALID_PORT(port)         (((uint8)(port)) < PORT_MAX_NUMBER)
 
 /** @brief Check if pin is valid (0-7) */
-#define IS_VALID_PIN(pin)           ((pin)  <= GPIO_PIN7)
+#define IS_VALID_PIN(pin)           (((uint8)(pin)) < PORT_PIN_MAX_NUMBER)
+
+/** @brief Number of physical pins on PORTE (RE0-RE2; RE3 is MCLR, input only) */
+#define PORTE_PIN_MAX_NUMBER        3
+
+/** @brief Check port + pin together (rejects pins that do not exist on the chip, e.g. RE3-RE7) */
+#define IS_VALID_PORT_PIN(port, pin) (IS_VALID_PORT(port) && IS_VALID_PIN(pin) && \
+        ((((uint8)(port)) != PORTE_INDEX) || (((uint8)(pin)) < PORTE_PIN_MAX_NUMBER)))
 
 /** @brief Check if direction is valid */
-#define IS_VALID_DIRECTION(dir)     ((dir)  <= GPIO_DIRECTION_INPUT)
+#define IS_VALID_DIRECTION(dir)     (((uint8)(dir)) <= GPIO_DIRECTION_INPUT)
 
 /** @brief Check if logic is valid */
-#define IS_VALID_LOGIC(logic)       ((logic) <= GPIO_HIGH)
+#define IS_VALID_LOGIC(logic)       (((uint8)(logic)) <= GPIO_HIGH)
 
 /* ==================== Section: Data Type Declarations ==================== */
 

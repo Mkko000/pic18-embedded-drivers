@@ -68,7 +68,7 @@ Std_ReturnType gpio_pin_direction_initialize(const pin_config_t *_pin_config) {
         ret = E_NOT_OK;
     }
     else if (!IS_VALID_PORT(_pin_config->port) ||
-             !IS_VALID_PIN(_pin_config->pin)  ||
+             !IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin)  ||
              !IS_VALID_DIRECTION(_pin_config->direction)) {
         ret = E_NOT_OK;
     }
@@ -105,7 +105,7 @@ Std_ReturnType gpio_pin_get_direction_status(const pin_config_t *_pin_config,
     if (NULL == _pin_config || NULL == direction_status) {
         ret = E_NOT_OK;
     }
-    else if (!IS_VALID_PORT(_pin_config->port) || !IS_VALID_PIN(_pin_config->pin)) {
+    else if (!IS_VALID_PORT(_pin_config->port) || !IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin)) {
         ret = E_NOT_OK;
     }
     else {
@@ -130,7 +130,7 @@ Std_ReturnType gpio_pin_write_logic(const pin_config_t *_pin_config, logic_t log
         ret = E_NOT_OK;
     }
     else if (!IS_VALID_PORT(_pin_config->port) ||
-             !IS_VALID_PIN(_pin_config->pin)  ||
+             !IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin)  ||
              !IS_VALID_LOGIC(logic)) {
         ret = E_NOT_OK;
     }
@@ -161,7 +161,7 @@ Std_ReturnType gpio_pin_read_logic(const pin_config_t *_pin_config, logic_t *log
     if (NULL == _pin_config || NULL == logic) {
         ret = E_NOT_OK;
     }
-    else if (!IS_VALID_PORT(_pin_config->port) || !IS_VALID_PIN(_pin_config->pin)) {
+    else if (!IS_VALID_PORT(_pin_config->port) || !IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin)) {
         ret = E_NOT_OK;
     }
     else {
@@ -185,7 +185,7 @@ Std_ReturnType gpio_pin_toggle_logic(const pin_config_t *_pin_config) {
     if (NULL == _pin_config) {
         ret = E_NOT_OK;
     }
-    else if (!IS_VALID_PORT(_pin_config->port) || !IS_VALID_PIN(_pin_config->pin)) {
+    else if (!IS_VALID_PORT(_pin_config->port) || !IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin)) {
         ret = E_NOT_OK;
     }
     else {
@@ -226,7 +226,7 @@ Std_ReturnType gpio_pin_deinitialize(const pin_config_t *_pin_config) {
     if (NULL == _pin_config) {
         ret = E_NOT_OK;
     }
-    else if (!IS_VALID_PORT(_pin_config->port) || !IS_VALID_PIN(_pin_config->pin)) {
+    else if (!IS_VALID_PORT(_pin_config->port) || !IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin)) {
         ret = E_NOT_OK;
     }
     else {
@@ -370,7 +370,7 @@ Std_ReturnType gpio_pin_setup(port_index_t port,
     if (!IS_VALID_PORT(port)) {
         ret = E_NOT_OK;
     }
-    else if (!IS_VALID_PIN(pin)) {
+    else if (!IS_VALID_PORT_PIN(port, pin)) {
         ret = E_NOT_OK;
     }
     else if (!IS_VALID_DIRECTION(direction)) {
@@ -418,7 +418,7 @@ Std_ReturnType gpio_pin_setup(port_index_t port,
 Std_ReturnType gpio_pin_write(port_index_t port, pin_index_t pin, logic_t logic) {
     Std_ReturnType ret = E_OK;
 
-    if (!IS_VALID_PORT(port) || !IS_VALID_PIN(pin) || !IS_VALID_LOGIC(logic)) {
+    if (!IS_VALID_PORT(port) || !IS_VALID_PORT_PIN(port, pin) || !IS_VALID_LOGIC(logic)) {
         ret = E_NOT_OK;
     }
     else {
@@ -447,7 +447,7 @@ Std_ReturnType gpio_pin_read(port_index_t port, pin_index_t pin, logic_t *logic)
     if (NULL == logic) {
         ret = E_NOT_OK;
     }
-    else if (!IS_VALID_PORT(port) || !IS_VALID_PIN(pin)) {
+    else if (!IS_VALID_PORT(port) || !IS_VALID_PORT_PIN(port, pin)) {
         ret = E_NOT_OK;
     }
     else {
@@ -463,7 +463,7 @@ Std_ReturnType gpio_pin_read(port_index_t port, pin_index_t pin, logic_t *logic)
 Std_ReturnType gpio_pin_toggle(port_index_t port, pin_index_t pin) {
     Std_ReturnType ret = E_OK;
 
-    if (!IS_VALID_PORT(port) || !IS_VALID_PIN(pin)) {
+    if (!IS_VALID_PORT(port) || !IS_VALID_PORT_PIN(port, pin)) {
         ret = E_NOT_OK;
     }
     else {
