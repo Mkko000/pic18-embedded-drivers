@@ -17,9 +17,17 @@ static volatile uint8 * const port_registers[PORT_MAX_NUMBER] = {&amp;PORTA, &am
 <aside class="tip"><b>خلي بالك</b>كلمة <code>volatile</code> هنا مش اختيارية. الكومبايلر بيحب يختصر: لو شاف إنك قريت PORTB مرتين ورا بعض ومحدش كتب فيه، هيقراه مرة واحدة ويستخدم القيمة تاني. بس PORTB بيتغير لوحده لما حد يدوس الزرار. <code>volatile</code> بتقوله "دي حاجة بتتغير من وراك، اقراها كل مرة". من غيرها هتلاقي لوب مستني زرار، شغال مظبوط في الـ debug ومبيخلصش في الـ release.</aside>
 
 <h2>قبل أي حاجة: الفحص</h2>
-<pre><code>#define IS_VALID_PORT_PIN(port, pin) (IS_VALID_PORT(port) &amp;&amp; IS_VALID_PIN(pin) &amp;&amp; \
-        ((((uint8)(port)) != PORTE_INDEX) || (((uint8)(pin)) &lt; PORTE_PIN_MAX_NUMBER)))</code></pre>
-<p>كل دالة بتبدأ بالفحص ده. البورت أقل من 5؟ الرجل أقل من 8؟ ولو PORTE، الرجل أقل من 3؟ لو لأ، بترجع <code>E_NOT_OK</code> من غير ما تلمس أي ريجستر. ليه ده مهم؟ لأن <code>lat_registers[7]</code> مش موجودة. لو حد بعت 7، المؤشر هيقرا عنوان عشوائي من الذاكرة، ويكتب فيه. هتلاقي متغير في حتة تانية خالص في البرنامج اتغيّر لوحده. ده من أسوأ الـ bugs اللي ممكن تدوّر عليها.</p>
+<pre><code>#if OSC_MODE == OSC_MODE_INTIO67
+    #define IS_VALID_PORTA_PIN(port, pin)   (1)
+#else
+    /* XT/HS/HSPLL: RA6/RA7 are OSC2/OSC1, not GPIO */
+    #define IS_VALID_PORTA_PIN(port, pin)   ((((uint8)(port)) != PORTA_INDEX) || (((uint8)(pin)) &lt; 6U))
+#endif
+#define IS_VALID_PORT_PIN(port, pin) (IS_VALID_PORT(port) &amp;&amp; IS_VALID_PIN(pin) &amp;&amp; \
+        ((((uint8)(port)) != PORTE_INDEX) || (((uint8)(pin)) &lt; PORTE_PIN_MAX_NUMBER)) &amp;&amp; \
+        IS_VALID_PORTA_PIN(port, pin))</code></pre>
+<p>كل دالة بتبدأ بالفحص ده. البورت أقل من 5؟ الرجل أقل من 8؟ ولو PORTE، الرجل أقل من 3؟ ولو PORTA وإنت على كريستالة، الرجل أقل من 6؟ لو لأ، بترجع <code>E_NOT_OK</code> من غير ما تلمس أي ريجستر. ليه ده مهم؟ لأن <code>lat_registers[7]</code> مش موجودة. لو حد بعت 7، المؤشر هيقرا عنوان عشوائي من الذاكرة، ويكتب فيه. هتلاقي متغير في حتة تانية خالص في البرنامج اتغيّر لوحده. ده من أسوأ الـ bugs اللي ممكن تدوّر عليها.</p>
+<aside class="tip"><b>خلي بالك</b>RA6 و RA7 في وضع XT/HS/HSPLL هما OSC2 و OSC1، مش I/O. الفحص بيرفضهم بـ <code>E_NOT_OK</code> إلا لو <code>OSC_MODE_INTIO67</code> (الأوسيليتور الداخلي، وساعتها الرجول فاضية). نفس الفكرة موجودة في ماسك البورت لـ PORTA: 0x3F مع الكريستالة، و 0xFF مع INTIO67. لو الدرايفر وافق على RA6 وإنت على كريستالة، هتكتب في بت مالوش رجل، والدالة تقول E_OK على حاجة مستحيلة.</aside>
 
 <h2>Direct API: كل حاجة في الباراميترز</h2>
 <pre><code>Std_ReturnType gpio_pin_setup(port_index_t port, pin_index_t pin,
@@ -85,3 +93,6 @@ gpio_pin_write_logic(&amp;buzzer, GPIO_HIGH);</code></pre>
 <div class="quiz"><p class="q">ندهت <code>gpio_pin_write(PORTE_INDEX, GPIO_PIN5, GPIO_HIGH)</code>. إيه اللي هيحصل؟</p>
 <button>RE5 هتطلع HIGH</button><button>الشريحة هتعمل ريست</button><button data-ok>هترجع E_NOT_OK ومش هتلمس أي ريجستر</button>
 <p class="why">PORTE فيه 3 رجول بس (RE0–RE2). الفحص <code>IS_VALID_PORT_PIN</code> بيمسكها قبل ما توصل للهاردوير.</p></div>
+<div class="quiz"><p class="q"><code>OSC_MODE = HS</code>، وندهت <code>gpio_pin_write(PORTA_INDEX, GPIO_PIN7, GPIO_HIGH)</code>. إيه اللي هيحصل؟</p>
+<button>RA7 هتطلع HIGH</button><button data-ok>هترجع E_NOT_OK لأن RA7 هي OSC1 مع الكريستالة</button><button>هتوقف الأوسيليتور</button>
+<p class="why">من غير INTIO67، RA6/RA7 مش GPIO. <code>IS_VALID_PORTA_PIN</code> بترفضهم قبل ما نوصل للهاردوير.</p></div>

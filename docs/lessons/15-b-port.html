@@ -38,7 +38,8 @@
 +        gpio_reg_write_masked(lat_registers[port], port, logic_mask);
      ...
  }</code></pre>
-<p>اقرا السطر المهم كده: خد الريجستر، وامسح منه البتات الموجودة بس (<code>&amp; ~valid</code>)، وحط مكانها القيمة الجديدة بعد ما تقصّ منها أي حاجة برّه الماسك (<code>value &amp; valid</code>). على PORTC الماسك 0xFF، فالسطر ده بيساوي كتابة عادية. على PORTE بيحمي البتات العالية.</p>
+<p>اقرا السطر المهم كده: خد الريجستر، وامسح منه البتات الموجودة بس (<code>&amp; ~valid</code>)، وحط مكانها القيمة الجديدة بعد ما تقصّ منها أي حاجة برّه الماسك (<code>value &amp; valid</code>). على PORTC الماسك 0xFF، فالسطر ده بيساوي كتابة عادية. على PORTE بيحمي البتات العالية. وعلى PORTA الماسك 0x3F مع الكريستالة (RA6/RA7 مش I/O) و 0xFF مع <code>OSC_MODE_INTIO67</code>.</p>
+<aside class="tip"><b>خلي بالك</b>الماسك ده لدوال البورت. دوال الرجل الواحدة (Direct و Struct، وبالتالي الليد) بتعمل نفس القاعدة بطريقة تانية: <code>IS_VALID_PORTA_PIN</code> جوّه <code>IS_VALID_PORT_PIN</code> بترفض RA6/RA7 بـ <code>E_NOT_OK</code> إلا مع INTIO67. يعني الشرط واحد، بس البورت بيقصّ البتات والرجل بترفض النداء كلّه.</aside>
 <p>ليه helper لوحده؟ لأن 3 دوال محتاجاه (setup و set_direction و write)، ولأن الـ Struct API هيحتاجه برضه. والـ <code>static inline</code> معناها إنه مش ظاهر برّه الملف، والكومبايلر غالبًا هيحطه مكان النداء من غير تكلفة نداء.</p>
 
 <h2>القراية والتوجل</h2>

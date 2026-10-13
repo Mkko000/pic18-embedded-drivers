@@ -71,8 +71,19 @@ Std_ReturnType gpio_pin_write_logic(const pin_config_t *_pin_config, logic_t log
 #define IS_VALID_PORT(port)         (((uint8)(port)) &lt; PORT_MAX_NUMBER)
 #define IS_VALID_PIN(pin)           (((uint8)(pin)) &lt; PORT_PIN_MAX_NUMBER)
 #define IS_VALID_DIRECTION(dir)     (((uint8)(dir)) &lt;= GPIO_DIRECTION_INPUT)
-#define IS_VALID_LOGIC(logic)       (((uint8)(logic)) &lt;= GPIO_HIGH)</code></pre>
+#define IS_VALID_LOGIC(logic)       (((uint8)(logic)) &lt;= GPIO_HIGH)
+
+#if OSC_MODE == OSC_MODE_INTIO67
+    #define IS_VALID_PORTA_PIN(port, pin)   (1)
+#else
+    /* XT/HS/HSPLL: RA6/RA7 are OSC2/OSC1, not GPIO */
+    #define IS_VALID_PORTA_PIN(port, pin)   ((((uint8)(port)) != PORTA_INDEX) || (((uint8)(pin)) &lt; 6U))
+#endif
+#define IS_VALID_PORT_PIN(port, pin) (IS_VALID_PORT(port) &amp;&amp; IS_VALID_PIN(pin) &amp;&amp; \
+        ((((uint8)(port)) != PORTE_INDEX) || (((uint8)(pin)) &lt; PORTE_PIN_MAX_NUMBER)) &amp;&amp; \
+        IS_VALID_PORTA_PIN(port, pin))</code></pre>
 <p>ليه الـ cast لـ uint8؟ لأن لو حد بعت قيمة سالبة (enum في C ممكن يبقى signed)، المقارنة <code>&lt; 5</code> هتعدّي. بعد الـ cast، الـ −1 بقت 255 والفحص يمسكها. ومفيش فحص <code>&gt;= 0</code> خالص، الـ unsigned بيغني عنه.</p>
+<aside class="tip"><b>خلي بالك</b><code>IS_VALID_PORT</code> و <code>IS_VALID_PIN</code> لوحدهم مش كفاية: PORTE رجله 5 هتعدّي، و RA6 مع كريستالة هتعدّي برضه. عشان كده فيه فحص مركّب <code>IS_VALID_PORT_PIN</code> بيمسك الاتنين. RA6/RA7 بيتوافق عليهم بس لو <code>OSC_MODE_INTIO67</code>، لأن ساعتها بس الرجول دي I/O مش أرجل الساعة.</aside>
 
 <div class="quiz"><p class="q">ليه الـ Struct API مبينادي الـ Direct API جوّاه؟</p>
 <button>علشان أسرع</button><button data-ok>علشان تقدر تقفل الـ Direct من الكونفيج والـ Struct يفضل شغال</button><button>الـ C مبتسمحش</button>

@@ -62,7 +62,8 @@ do { gpio_pin_read(PORTB_INDEX, GPIO_PIN0, &amp;b); } while (GPIO_HIGH == b);</c
 +    return ret;
  }</code></pre>
 <p>ليه متغير <code>ret</code> و return واحد في الآخر بدل ما نعمل <code>return E_NOT_OK</code> على طول؟ دي قاعدة من MISRA (single exit point). ممكن تختلف معاها، وفيه ناس شاطرة بتختلف معاها. بس ليها فايدة عملية: لو بكرة عايز تضيف حاجة تتعمل في الآخر دايمًا (زي إنك تعدّ الأخطاء)، فيه مكان واحد.</p>
-<p>وليه <code>IS_VALID_PORT_PIN</code> مش <code>IS_VALID_PORT &amp;&amp; IS_VALID_PIN</code>؟ لأن PORTE رجله 5 بتعدّي الفحص التاني، والريجستر LATE بت 5 موجود في الذاكرة بس مالوش رجل. مش هيبوظ حاجة، بس الدالة هتقول E_OK على حاجة مستحيلة.</p>
+<p>وليه <code>IS_VALID_PORT_PIN</code> مش <code>IS_VALID_PORT &amp;&amp; IS_VALID_PIN</code>؟ لأن PORTE رجله 5 بتعدّي الفحص التاني، والريجستر LATE بت 5 موجود في الذاكرة بس مالوش رجل. ونفس الحكاية مع RA6 و RA7 لو إنت على كريستالة: البتات في LATA موجودة، بس الرجول مش I/O (هما OSC2/OSC1). مش هيبوظ حاجة، بس الدالة هتقول E_OK على حاجة مستحيلة.</p>
+<aside class="tip"><b>خلي بالك</b>الغلط ده بيعدّي الكومبايل عادي: <code>gpio_pin_write(PORTA_INDEX, GPIO_PIN7, ...)</code> شكله سليم. اللي بيمسكك وقت التشغيل هو <code>IS_VALID_PORTA_PIN</code>: مع XT/HS/HSPLL بيرفض أي pin ≥ 6 على PORTA وبيرجع <code>E_NOT_OK</code>، ومع <code>OSC_MODE_INTIO67</code> بيوافق على الكل. ده نفس شرط ماسك PORTA 0x3F / 0xFF في دوال البورت.</aside>
 
 <h2>v4: gpio_pin_setup والترتيب</h2>
 <div class="goal"><b>الهدف:</b> نداء واحد يجهّز الرجل، من غير glitch.</div>
@@ -121,6 +122,7 @@ else                    CLEAR_BIT(*(lat_registers[port]), pin);</code></pre>
 <pre><code>Std_ReturnType r;
 r = gpio_pin_setup(PORTC_INDEX, GPIO_PIN0, GPIO_DIRECTION_OUTPUT, GPIO_HIGH);  /* E_OK, LATC.0=1, TRISC.0=0 */
 r = gpio_pin_write(PORTE_INDEX, GPIO_PIN5, GPIO_HIGH);                         /* E_NOT_OK، LATE مايتغيرش */
+r = gpio_pin_write(PORTA_INDEX, GPIO_PIN6, GPIO_HIGH);                         /* E_NOT_OK لو OSC مش INTIO67 */
 r = gpio_pin_write(7, GPIO_PIN0, GPIO_HIGH);                                   /* E_NOT_OK */
 r = gpio_pin_read(PORTB_INDEX, GPIO_PIN0, NULL);                               /* E_NOT_OK */
 r = gpio_pin_toggle(PORTC_INDEX, GPIO_PIN0);                                   /* LATC.0 = 0 */</code></pre>

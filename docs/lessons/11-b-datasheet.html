@@ -16,7 +16,8 @@
 <tr><td>RB5..RB7</td><td>PGM, PGC, PGD</td><td>الـ PICkit بيستخدم RB6 و RB7</td></tr>
 <tr><td>RE0..RE2</td><td>AN5..AN7</td><td>PORTE فيه 3 رجول I/O بس، و RE3 هي MCLR (دخل بس)</td></tr>
 </table>
-<p><b>القرارات في الكود:</b> <code>PORTE_PIN_MAX_NUMBER 3</code> وفحص خاص لـ PORTE. جدول <code>analog_channel_map</code> اللي بيربط كل رجل بقناتها. و <code>gpio_init()</code> بتخلي الكل Digital.</p>
+<p><b>القرارات في الكود:</b> <code>PORTE_PIN_MAX_NUMBER 3</code> وفحص خاص لـ PORTE. و <code>IS_VALID_PORTA_PIN</code> اللي بترفض RA6/RA7 بـ <code>E_NOT_OK</code> إلا مع <code>OSC_MODE_INTIO67</code>، وماسك PORTA 0x3F أو 0xFF حسب نفس الشرط. جدول <code>analog_channel_map</code> اللي بيربط كل رجل بقناتها. و <code>gpio_init()</code> بتخلي الكل Digital.</p>
+<aside class="tip"><b>خلي بالك</b>لو حطيت ليد على RA6 وإنت شغّال بكريستالة، الدرايفر مش هينوّره وهيرجع <code>E_NOT_OK</code>. مش bug: الرجل دي مش I/O في الوضع ده. إما تنقل الليد لرجل تانية، أو تغيّر لـ <code>OSC_MODE_INTIO67</code> لو فعلاً عايز الأوسيليتور الداخلي.</aside>
 <aside class="tip"><b>خلي بالك</b>RA4 لوحدها في البورت ده open-drain: تقدر تشدها للأرضي بس، ومش هتطلع 5V لوحدها. لو حطيت عليها ليد Source ومش بتنوّر، دي مش مشكلة في الدرايفر. يا تستخدمها Sink، يا تحط pull-up 10k. والـ RB6 و RB7 لو عليهم حاجة تقيلة، البرمجة بالـ PICkit ممكن تفشل.</aside>
 
 <h2>3. ADCON1: الـ Analog والـ Digital</h2>
