@@ -68,8 +68,15 @@
 #define PORTE_PIN_MAX_NUMBER        3
 
 /** @brief Check port + pin together (rejects pins that do not exist on the chip, e.g. RE3-RE7) */
+#if OSC_MODE == OSC_MODE_INTIO67
+    #define IS_VALID_PORTA_PIN(port, pin)   (1)
+#else
+    /* XT/HS/HSPLL: RA6/RA7 are OSC2/OSC1, not GPIO (matches the PORTA port mask) */
+    #define IS_VALID_PORTA_PIN(port, pin)   ((((uint8)(port)) != PORTA_INDEX) || (((uint8)(pin)) < 6U))
+#endif
 #define IS_VALID_PORT_PIN(port, pin) (IS_VALID_PORT(port) && IS_VALID_PIN(pin) && \
-        ((((uint8)(port)) != PORTE_INDEX) || (((uint8)(pin)) < PORTE_PIN_MAX_NUMBER)))
+        ((((uint8)(port)) != PORTE_INDEX) || (((uint8)(pin)) < PORTE_PIN_MAX_NUMBER)) && \
+        IS_VALID_PORTA_PIN(port, pin))
 
 /** @brief Check if direction is valid */
 #define IS_VALID_DIRECTION(dir)     (((uint8)(dir)) <= GPIO_DIRECTION_INPUT)

@@ -14,6 +14,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sem
 ### Fixed
 - Struct API failed to build on XC8 v3 (error 712) when a `const` (flash) `pin_config_t` and a RAM one were both passed to it (e.g. Struct-only + LED driver); every Struct API function now works on a RAM copy of the config.
 - `NOP()` was redefined over the one from `<xc.h>` (warning on every file).
+- Single-pin APIs (Direct and Struct, and so the LED driver) accepted RA6/RA7 in XT/HS/HSPLL mode, where they are OSC2/OSC1; `IS_VALID_PORT_PIN` now rejects them with `E_NOT_OK` unless `OSC_MODE_INTIO67`, matching the PORTA port mask.
 - No unused LAT/PORT tables or helpers when both GPIO APIs are disabled; removed an implicit-conversion warning in the LED driver.
 
 ## [2.1.0] - 2026-10-11
