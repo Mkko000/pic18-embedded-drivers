@@ -1,0 +1,106 @@
+<p>الليد أبسط حاجة ممكن تتوصل بميكرو. ومع ذلك ليها درايفر لوحدها. السبب إن "نوّر الليد" مش دايمًا معناها "اكتب 1". والسؤال اللي بدأ منه الدرس ده كان سؤال حقيقي وقت كتابة الكود: ليه <code>led_initialize</code> كانت بتستخدم struct ومعانا Direct API؟</p>
+<a data-src="ECU_Layer/LED/ecu_led.h"></a> <a data-src="ECU_Layer/LED/ecu_led.c"></a>
+
+<h2>النسخة الأولى وإيه اللي كان فيها</h2>
+<p>أول تعريف لليد كان كده:</p>
+<pre><code>typedef enum { LED_OFF, LED_ON } led_status_t;
+
+typedef struct {
+    uint8 port_name  : 4;
+    uint8 pin        : 3;
+    uint8 led_status : 1;
+} led_t;
+
+Std_ReturnType led_initialize(const led_t *led) {
+    Std_ReturnType ret = E_OK;
+    if (NULL == led) {
+        ret = E_NOT_OK;
+    } else {
+        pin_config_t pin_obj = { .port = led-&gt;port_name, .pin = led-&gt;pin,
+                                 .direction = GPIO_DIRECTION_OUTPUT,
+                                 .logic = led-&gt;led_status };
+        gpio_pin_initialize(&amp;pin_obj);
+    }
+    return ret;
+}</code></pre>
+<p>الكود ده بيشتغل. بس فيه تلات حاجات، واحدة منهم غلطة حقيقية.</p>
+<h3>1. نتيجة الدالة اتنسيت</h3>
+<p>السطر <code>gpio_pin_initialize(&amp;pin_obj);</code> بيرجّع E_OK أو E_NOT_OK، والنتيجة رايحة في الهوا. يعني لو حد عمل ليد على <code>PORTE</code> رجل 6، الـ GPIO هيرفض، و <code>led_initialize</code> هترجع E_OK كأن كل حاجة تمام. الأبلكيشن هيصدّق، والليد عمرها ما هتنوّر، ومفيش أي حاجة تقولك ليه. الحل كلمة واحدة: <code>ret = gpio_pin_initialize(&amp;pin_obj);</code></p>
+<aside class="tip"><b>خلي بالك</b>لو قصدك تتجاهل النتيجة، اكتبها صريحة: <code>(void)gpio_init();</code>. كده اللي بيقرا الكود (وأدوات الفحص زي MISRA) يعرف إنك شايفها وقررت تسيبها، مش ناسيها. هتلاقي ده في <code>application.c</code> وفي المشاريع.</aside>
+<h3>2. struct على الـ stack من غير لازمة</h3>
+<p>بنبني <code>pin_config_t</code> مؤقت، بس علشان نبعته لدالة هتفكّه تاني. الـ Direct API بيعمل نفس الشغل بنداء واحد:</p>
+<pre><code>ret = gpio_pin_setup((port_index_t)led-&gt;port, (pin_index_t)led-&gt;pin,
+                     GPIO_DIRECTION_OUTPUT, GPIO_LOW);</code></pre>
+<p>الفرق مش كبير في الليد الواحدة: بايت على الـ stack وكام تعليمة. بس الشريحة دي فيها stack للـ hardware بعمق 31 نداء بس، والـ RAM 4KB، ودالة زي دي ممكن تتنادى جوّه لوب سريع. العادة الصح من الأول أرخص.</p>
+<h3>3. اسم <code>led_status</code> بيلخبط</h3>
+<p>هو كان بيتستخدم كقيمة أولية للرجل (LOW أو HIGH)، مش حالة الليد. ولو الليد Sink، الـ LOW هو اللي بينوّر، فـ <code>LED_OFF</code> اللي قيمتها 0 هتنوّر الليد. يعني الاسم بيكدب في نص الحالات.</p>
+
+<h2>النسخة اللي في الريبو دلوقتي</h2>
+<pre><code>typedef enum { LED_ACTIVE_HIGH_MODE = 0, LED_ACTIVE_LOW_MODE = 1 } led_active_t;
+typedef enum { LED_OFF = 0, LED_ON = 1 } led_state_t;
+
+typedef struct {
+    uint8 port     : 3;
+    uint8 pin      : 3;
+    uint8 active   : 1;    /* Active High ولا Low */
+    uint8 reserved : 1;    /* محجوز لبعدين */
+} led_config_t;</code></pre>
+<p>اتغيّر إيه؟ <code>port</code> بقى 3 بت زي <code>pin_config_t</code> بالظبط، فالتحويل بينهم مبيقطعش حاجة. والحالة الأولية اتشالت خالص من الـ struct، لأن الليد بتبدأ مطفية دايمًا. ومكانها جه <code>active</code>: الليد Source ولا Sink. والبت الأخير <code>reserved</code> واخد مكانه علشان الـ struct يفضل بايت كامل، ولو احتجنا حاجة بعدين (زي "ليد بتومض لوحدها") في مكان ليها.</p>
+
+<h3>المنطق المقلوب في ماكرو واحد</h3>
+<pre><code>#define LED_ON_LOGIC(led)   (((led)-&gt;active == LED_ACTIVE_HIGH_MODE) ? GPIO_HIGH : GPIO_LOW)
+#define LED_OFF_LOGIC(led)  (((led)-&gt;active == LED_ACTIVE_HIGH_MODE) ? GPIO_LOW  : GPIO_HIGH)</code></pre>
+<p>كل حتة في الدرايفر بتسأل الماكرو ده بدل ما تفكر. <code>led_on</code> بتكتب <code>LED_ON_LOGIC</code>، وخلاص. والأبلكيشن عمره ما هيعرف الليد متوصلة إزاي.</p>
+
+<h3>الاتنين API، والاختيار وقت الكومبايل</h3>
+<pre><code>#if GPIO_DIRECT_API_ENABLE == CONFIG_ENABLE
+    #define LED_USE_GPIO_DIRECT_API
+#endif
+
+Std_ReturnType led_initialize(const led_config_t *led) {
+    Std_ReturnType ret = E_OK;
+    if (NULL == led) {
+        ret = E_NOT_OK;
+    } else {
+#ifdef LED_USE_GPIO_DIRECT_API
+        ret = gpio_pin_setup((port_index_t)led-&gt;port, (pin_index_t)led-&gt;pin,
+                             GPIO_DIRECTION_OUTPUT, LED_OFF_LOGIC(led));
+#else
+        pin_config_t cfg = led_to_pin_config(led, LED_OFF_LOGIC(led));
+        ret = gpio_pin_initialize(&amp;cfg);
+#endif
+    }
+    return ret;
+}</code></pre>
+<p>الدرايفر بيفضّل الـ Direct لو مفتوح، ولو مقفول بيرجع للـ Struct. والاتنين بياخدوا الـ ret. ولو الاتنين مقفولين، الـ <code>#error</code> اللي في device_config.h بيوقف الكومبايل قبل ما توصل هنا.</p>
+<p>وبص على <code>LED_OFF_LOGIC(led)</code> في الـ setup: ليد Sink هتتعمل وهي HIGH، يعني مطفية، ومش هتغمز لحظة التشغيل. ده نفس موضوع ترتيب LAT قبل TRIS، بس من فوق.</p>
+
+<h3>led_get_state بتقرا منين؟</h3>
+<p>من الـ LAT، بـ <code>gpio_pin_read_latch</code>. لو قريت PORT ممكن تلاقي الجهد واقع شوية بسبب الليد نفسها وتتقري غلط. وإحنا عايزين نعرف "أنا قلتلها تنوّر ولا لأ"، وده مكانه الـ Latch.</p>
+
+<h2>من الأبلكيشن</h2>
+<a data-src="application.c"></a>
+<pre><code>led_config_t led_red = { .port = PORTC_INDEX, .pin = GPIO_PIN0,
+                         .active = LED_ACTIVE_HIGH_MODE, .reserved = 0 };
+
+void main(void) {
+    (void)gpio_init();
+    led_initialize(&amp;led_red);
+    while (1) {
+        led_on(&amp;led_red);
+        __delay_ms(500);
+        led_off(&amp;led_red);
+        __delay_ms(500);
+    }
+}</code></pre>
+<p>مفيش ولا ريجستر. لو نقلت الليد لـ RD5 وقلبتها Sink، بتغيّر سطر التعريف بس.</p>
+
+<h2>جرّب تكمّل بنفسك</h2>
+<p>الدرايفر مفيهوش دالة <code>led_set(led, state)</code> بتاخد ON أو OFF كباراميتر. حاول تكتبها في 6 سطور: فحص الـ NULL، وفحص إن الـ state صح، وبعدين تنادي <code>led_on</code> أو <code>led_off</code> وترجّع نتيجتها. لو عملتها، هتلاقي الـ Morse ممكن يتكتب أقصر.</p>
+
+<div class="quiz"><p class="q">ليد Active Low على RD2. ندهت <code>led_initialize</code>. الرجل هتبقى إيه؟</p>
+<button>Output و LOW</button><button data-ok>Output و HIGH، يعني الليد مطفية</button><button>Input</button>
+<p class="why"><code>LED_OFF_LOGIC</code> لليد Active Low بيدّي GPIO_HIGH. الرجل HIGH والطرف التاني على VCC، يبقى مفيش تيار.</p></div>
+<div class="quiz"><p class="q">في النسخة القديمة، إيه أخطر مشكلة؟</p>
+<button>الـ struct كان 2 بايت</button><button data-ok>نتيجة gpio_pin_initialize كانت بتضيع، فالأخطاء مش بتوصل للأبلكيشن</button><button>مكانش فيه فحص NULL</button>
+<p class="why">فحص الـ NULL كان موجود، والـ struct كان بايت. بس الدالة كانت ترجع E_OK حتى لو الـ GPIO رفض.</p></div>

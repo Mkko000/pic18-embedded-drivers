@@ -1,0 +1,91 @@
+<p>أول ما تفتح الريبو هتلاقي فولدرات كتير، وممكن تقول "كل ده علشان ليد؟". عندك حق، لو المشروع هيفضل ليد. بس الريبو ده معمول علشان يكبر: زرار، شاشة LCD، ADC، UART. والطريقة دي هي اللي بتخلي الإضافة سهلة بدل ما كل درايفر جديد يكسر اللي قبله.</p>
+
+<h2>العمارة والأدوار</h2>
+<p>فكّر في عمارة. الـ Application هو الساكن: عايز نور في الصالة، وخلاص. الـ ECU هو الكهربائي: يعرف إن "نور الصالة" ده ليد على RC0 بتنوّر بالـ HIGH. الـ MCAL هو لوحة الكهربا نفسها: يعرف TRISC و LATC وبس، وميعرفش يعني إيه ليد. والـ Config و Common دول الكود والمواصفات اللي الكل ماشي عليها.</p>
+<div class="diagram">  application.c          ← "نوّر الأحمر"
+        │
+   ECU_Layer/LED          ← led_on(&led_red)
+        │
+   MCAL_Layer/GPIO        ← gpio_pin_write(PORTC, PIN0, HIGH)
+        │
+   TRISC / LATC / PORTC   ← الهاردوير
+
+   Config/ و Common/  ← الكل بيستخدمهم</div>
+<p>القاعدة الذهبية: كل طبقة بتكلم اللي تحتها بس. الـ application مبيلمسش ريجستر، والـ ECU مبيلمسش ريجستر. لو بكرة نقلت الكود لـ PIC تانية، هتغيّر الـ MCAL وبس، والليد والأبلكيشن زي ما هم.</p>
+<p>اللي عايز يعرف أصل الفكرة: دي نسخة مبسطة من AUTOSAR، اللي شركات العربيات بتستخدمه. هناك الطبقات أكتر بكتير، بس الروح واحدة.</p>
+
+<h2>Config/device_config.h: مكان واحد لكل القرارات</h2>
+<a data-src="Config/device_config.h"></a>
+<p>ده الملف اللي بتفتحه أول حاجة. فيه سرعة الكريستالة، ونوع الأوسيليتور، وفيه مفاتيح تفتح وتقفل كل درايفر:</p>
+<pre><code>#define _XTAL_FREQ          4000000UL
+#define OSC_MODE            OSC_MODE_HS
+
+#define GPIO_MODULE_ENABLE              CONFIG_ENABLE
+#define GPIO_STRUCT_API_ENABLE          CONFIG_ENABLE
+#define GPIO_DIRECT_API_ENABLE          CONFIG_ENABLE
+#define GPIO_ANALOG_CONFIG_ENABLE       CONFIG_ENABLE
+#define GPIO_INIT_ALL_DIGITAL           CONFIG_ENABLE
+#define GPIO_PORTB_PULLUP_ENABLE        CONFIG_ENABLE
+
+#define ADC_MODULE_ENABLE               CONFIG_DISABLE
+#define LED_MODULE_ENABLE               CONFIG_ENABLE</code></pre>
+<p><code>_XTAL_FREQ</code> مش لينا، ده للكومبايلر. الـ <code>__delay_ms(500)</code> بتحسب عدد اللفات من الرقم ده. لو كتبت 4MHz والكريستالة 20MHz، كل delay هيبقى أسرع خمس مرات، والـ Morse بتاعك هيبقى صفارة.</p>
+<p>المفاتيح بتشتغل بالـ <code>#if</code>. لما تقفل حاجة، الكومبايلر حرفيًا مش بيشوف الكود بتاعها، فمش بياخد ولا بايت من الـ Flash. في شريحة الـ Flash فيها 64KB، ده بيفرق لما المشروع يكبر.</p>
+<h3>الـ #error: الملف بيحمي نفسه</h3>
+<p>آخر الملف فيه فحوصات:</p>
+<pre><code>#if (LED_MODULE_ENABLE == CONFIG_ENABLE) &amp;&amp; (GPIO_MODULE_ENABLE != CONFIG_ENABLE)
+    #error "LED_MODULE requires GPIO_MODULE to be enabled!"
+#endif</code></pre>
+<p>الليد مبنية فوق الـ GPIO. لو حد قفل الـ GPIO ونسي الليد شغالة، من غير السطر ده هيطلعله 40 خطأ غريب من نوع "undefined reference". مع السطر ده بيطلعله خطأ واحد بيقوله بالظبط إيه المشكلة. ده أرخص توثيق ممكن تكتبه، لأنه بيشتغل لوحده.</p>
+
+<h2>Config/config_bits.c: الفيوزات</h2>
+<a data-src="Config/config_bits.c"></a>
+<p>الـ Configuration Bits إعدادات بتتحرق مع البرنامج ومبتتغيرش وهو شغال: نوع الأوسيليتور، الـ Watchdog، الـ Brown-out، الحماية. الـ XC8 بيقبلها في أي ملف واحد، فحطيناها في ملف لوحدها علشان متتكررش.</p>
+<pre><code>#if   OSC_MODE == OSC_MODE_XT
+#pragma config OSC = XT         /* XT crystal (&lt;= 4 MHz) */
+#elif OSC_MODE == OSC_MODE_HS
+#pragma config OSC = HS         /* HS crystal (4 - 25 MHz) */
+...
+#pragma config WDT   = OFF
+#pragma config LVP   = OFF
+#pragma config MCLRE = ON
+#pragma config PBADEN = OFF</code></pre>
+<p>واختيار الأوسيليتور نفسه مربوط بـ <code>OSC_MODE</code> اللي في device_config.h، والملف بيراجع الرقم ده مع <code>_XTAL_FREQ</code>: لو اخترت XT مع كريستالة 8MHz، أو HSPLL والسرعة طالعة برّه 16–40MHz، هيرفض يكمل ويقولك ليه.</p>
+<p>شوية حاجات تستاهل وقفة:</p>
+<p><b>LVP = OFF:</b> لو سبتها ON، رجل RB5 بتتحجز للبرمجة على جهد واطي، ولو اتلمست بتدخل الشريحة في وضع البرمجة. ناس كتير قعدت أيام مش فاهمة ليه البورد بتهنج لما إيدها تقرب منها.</p>
+<p><b>PBADEN = OFF:</b> رجول PORTB من RB0 لـ RB4 بتبدأ Analog بعد الريست لو دي ON. فالزرار اللي على RB0 هيتقري صفر دايمًا. الإعداد ده بيبدأها Digital.</p>
+<p><b>WDT = OFF:</b> الـ Watchdog بيعمل ريست لو الكود ماقالوش "أنا عايش" كل فترة. مفيد جدًا في جهاز حقيقي، ومزعج جدًا وإنت بتتعلم، لأن الكود هيعمل ريست كل شوية من غير سبب واضح.</p>
+<p><b>MCLRE = ON:</b> رجل MCLR هي زرار الريست. لازم عليها مقاومة 10k لـ VDD، وإلا الشريحة هتفضل في ريست.</p>
+
+<h2>Common/: اللغة المشتركة</h2>
+<h3>mcal_std_types.h</h3>
+<a data-src="Common/mcal_std_types.h"></a>
+<pre><code>typedef unsigned char   uint8;
+typedef signed char     sint8;
+typedef unsigned short  uint16;
+typedef unsigned long   uint32;
+typedef uint8           Std_ReturnType;
+
+#define E_OK            (Std_ReturnType)0x01
+#define E_NOT_OK        (Std_ReturnType)0x00</code></pre>
+<p>ليه نعمل <code>uint8</code> بدل <code>int</code>؟ لأن <code>int</code> مالوش حجم ثابت في C. على الـ PIC18 بالـ XC8 هو 16 بت، وعلى الكمبيوتر 32. لما تكتب uint8 إنت عارف بالظبط إنه بايت، وفي ميكرو RAM بتاعته 4KB ده مهم. والـ PIC18 معالج 8 بت، فأي حاجة أكبر من بايت بتاخد تعليمات أكتر.</p>
+<aside class="tip"><b>خلي بالك</b>في المشروع ده <code>E_OK</code> = 1 و <code>E_NOT_OK</code> = 0. ده عكس AUTOSAR الأصلي وعكس عادة لينكس (صفر يعني نجاح). علشان كده متكتبش <code>if (!ret)</code> وإنت فاكرها "لو مفيش خطأ". اكتب دايمًا <code>if (E_OK == ret)</code> بالاسم، وكده الكود صح أيًا كانت القيمة.</aside>
+<h3>std_macros.h</h3>
+<a data-src="Common/std_macros.h"></a>
+<pre><code>#define BIT_MASK                    ((uint8)1)
+#define SET_BIT(REG, BIT_POSN)      ((REG) |=  ((BIT_MASK) &lt;&lt; (BIT_POSN)))
+#define CLEAR_BIT(REG, BIT_POSN)    ((REG) &amp;= ~((BIT_MASK) &lt;&lt; (BIT_POSN)))
+#define TOGGLE_BIT(REG, BIT_POSN)   ((REG) ^=  ((BIT_MASK) &lt;&lt; (BIT_POSN)))
+#define READ_BIT(REG, BIT_POSN)     (((REG) &gt;&gt; (BIT_POSN)) &amp; (BIT_MASK))</code></pre>
+<p>خد <code>SET_BIT(LATC, 3)</code> كمثال. <code>1 &lt;&lt; 3</code> بيعمل <code>0000 1000</code>. والـ <code>|=</code> بتعمل OR: أي بت فيه 1 في الماسك هيبقى 1، والباقي زي ما هو. يعني بنولّع بت 3 من غير ما نلمس الباقي. الـ CLEAR بتقلب الماسك (<code>1111 0111</code>) وتعمل AND، فبت 3 بس هو اللي يتصفّر. والـ XOR في التوجل بيقلب البت اللي في الماسك بس.</p>
+<p>شوف الأقواس حوالين كل حاجة في الماكرو. دي مش زينة. لو حد كتب <code>SET_BIT(LATC, n+1)</code> ومن غير أقواس، الماكرو هيبقى <code>1 &lt;&lt; n+1</code>، والأولوية هتلخبط الحساب في حالات تانية. وتعليق الملف نفسه بيحذرك متديش الماكرو حاجة فيها <code>++</code>، لأن الماكرو بينسخ الكلام، فالـ <code>x++</code> ممكن تتنفذ مرتين.</p>
+<h3>compiler.h</h3>
+<a data-src="Common/compiler.h"></a>
+<p>بيكشف إنت بتعمل كومبايل بإيه (XC8 ولا GCC)، ويدّيك أسماء ثابتة زي <code>INLINE</code> و <code>INTERRUPT_HANDLER</code> و <code>NOP()</code>. الفايدة إنك تقدر تعمل كومبايل لجزء من الكود على الكمبيوتر بـ GCC وتعمله تيست من غير بورد خالص.</p>
+
+<div class="quiz"><p class="q">عملت <code>ADC_MODULE_ENABLE CONFIG_ENABLE</code> بس لسه مفيش درايفر ADC. إيه اللي هيحصل للـ GPIO؟</p>
+<button>ولا حاجة</button><button data-ok>الـ GPIO هيسيب الرجول اللي الـ ADC ممكن يحتاجها Analog، وما يحوّلهاش Digital لوحده</button><button>خطأ كومبايل</button>
+<p class="why">في hal_gpio.c فيه <code>#if ADC_MODULE_ENABLE</code> جوّه الجزء بتاع التحويل للـ Digital. لما الـ ADC يبقى ON، الـ GPIO بيحترم الرجول اللي اتطلبت Analog. هنشوفه في الدرس الجاي.</p></div>
+<div class="quiz"><p class="q"><code>ret = gpio_pin_write(...)</code> ونجحت. إيه قيمة ret بالرقم؟</p>
+<button>0</button><button data-ok>1</button><button>-1</button>
+<p class="why">في المشروع ده E_OK = 0x01. وعلشان كده بنقارن بالاسم دايمًا.</p></div>

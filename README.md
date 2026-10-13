@@ -22,6 +22,13 @@
 
 The codebase follows a strict **layered architecture** (Config → Common → MCAL → ECU → Application), so every new driver (ADC, Timers, UART, LCD, …) slots in beside the existing ones without touching unrelated code. Every feature can be switched on or off from a **single configuration file**.
 
+## 🎓 Course · الكورس
+
+An interactive Egyptian-Arabic course that explains this repository lesson by lesson (GPIO, transistors, power, the layers, the GPIO and LED drivers, and the projects):
+**https://mkko000.github.io/pic18-embedded-drivers/**
+
+كورس تفاعلي بالعربي بيشرح الريبو ده درس درس، فيه حاسبات وأسئلة. الموقع في فولدر `docs/`.
+
 ## 🏗️ Architecture
 
 ```mermaid

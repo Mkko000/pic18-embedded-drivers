@@ -1,0 +1,85 @@
+<p>الدرايفر ده هو الطبقة الوحيدة في المشروع اللي بتلمس TRIS و LAT و PORT. كل حاجة تانية بتعدّي من هنا. ولو فهمته، كل درايفر جاي (ADC، Timer، UART) هيبقى نفس الشكل بالظبط.</p>
+<a data-src="MCAL_Layer/GPIO/hal_gpio.h"></a> <a data-src="MCAL_Layer/GPIO/hal_gpio.c"></a>
+
+<h2>الأنواع: الكومبايلر يساعدك</h2>
+<pre><code>typedef enum { GPIO_LOW = 0, GPIO_HIGH = 1 } logic_t;
+typedef enum { GPIO_DIRECTION_OUTPUT = 0, GPIO_DIRECTION_INPUT = 1 } direction_t;
+typedef enum { GPIO_PIN0 = 0, /* ... */ GPIO_PIN7 } pin_index_t;
+typedef enum { PORTA_INDEX = 0, PORTB_INDEX, PORTC_INDEX, PORTD_INDEX, PORTE_INDEX } port_index_t;</code></pre>
+<p>ممكن كنا نكتب الأرقام على طول. بس <code>gpio_pin_write(2, 0, 1)</code> مين يفهمها بعد شهر؟ <code>gpio_pin_write(PORTC_INDEX, GPIO_PIN0, GPIO_HIGH)</code> بتتقري زي الجملة. وبص على الـ direction: OUTPUT = 0 و INPUT = 1، نفس قيم البت في TRIS بالظبط. يعني القيمة بتتكتب في الريجستر من غير ترجمة.</p>
+
+<h2>جدول بدل switch</h2>
+<pre><code>static volatile uint8 * const tris_registers[PORT_MAX_NUMBER] = {&amp;TRISA, &amp;TRISB, &amp;TRISC, &amp;TRISD, &amp;TRISE};
+static volatile uint8 * const lat_registers[PORT_MAX_NUMBER]  = {&amp;LATA,  &amp;LATB,  &amp;LATC,  &amp;LATD,  &amp;LATE};
+static volatile uint8 * const port_registers[PORT_MAX_NUMBER] = {&amp;PORTA, &amp;PORTB, &amp;PORTC, &amp;PORTD, &amp;PORTE};</code></pre>
+<p>دي أهم حتة في الملف. بدل ما كل دالة فيها switch بخمس حالات، عندنا جدول عناوين. <code>lat_registers[PORTC_INDEX]</code> هو عنوان LATC. فـ <code>SET_BIT(*(lat_registers[port]), pin)</code> سطر واحد بيشتغل مع أي بورت.</p>
+<p>اقرا التعريف من اليمين للشمال: <code>tris_registers</code> مصفوفة من مؤشرات <code>const</code> (المؤشر نفسه ثابت، محدش يغيّر الجدول)، كل مؤشر بيشاور على <code>volatile uint8</code>.</p>
+<aside class="tip"><b>خلي بالك</b>كلمة <code>volatile</code> هنا مش اختيارية. الكومبايلر بيحب يختصر: لو شاف إنك قريت PORTB مرتين ورا بعض ومحدش كتب فيه، هيقراه مرة واحدة ويستخدم القيمة تاني. بس PORTB بيتغير لوحده لما حد يدوس الزرار. <code>volatile</code> بتقوله "دي حاجة بتتغير من وراك، اقراها كل مرة". من غيرها هتلاقي لوب مستني زرار، شغال مظبوط في الـ debug ومبيخلصش في الـ release.</aside>
+
+<h2>قبل أي حاجة: الفحص</h2>
+<pre><code>#define IS_VALID_PORT_PIN(port, pin) (IS_VALID_PORT(port) &amp;&amp; IS_VALID_PIN(pin) &amp;&amp; \
+        ((((uint8)(port)) != PORTE_INDEX) || (((uint8)(pin)) &lt; PORTE_PIN_MAX_NUMBER)))</code></pre>
+<p>كل دالة بتبدأ بالفحص ده. البورت أقل من 5؟ الرجل أقل من 8؟ ولو PORTE، الرجل أقل من 3؟ لو لأ، بترجع <code>E_NOT_OK</code> من غير ما تلمس أي ريجستر. ليه ده مهم؟ لأن <code>lat_registers[7]</code> مش موجودة. لو حد بعت 7، المؤشر هيقرا عنوان عشوائي من الذاكرة، ويكتب فيه. هتلاقي متغير في حتة تانية خالص في البرنامج اتغيّر لوحده. ده من أسوأ الـ bugs اللي ممكن تدوّر عليها.</p>
+
+<h2>Direct API: كل حاجة في الباراميترز</h2>
+<pre><code>Std_ReturnType gpio_pin_setup(port_index_t port, pin_index_t pin,
+                              direction_t direction, logic_t logic);
+Std_ReturnType gpio_pin_write(port_index_t port, pin_index_t pin, logic_t logic);
+Std_ReturnType gpio_pin_read(port_index_t port, pin_index_t pin, logic_t *logic);
+Std_ReturnType gpio_pin_read_latch(port_index_t port, pin_index_t pin, logic_t *logic);
+Std_ReturnType gpio_pin_toggle(port_index_t port, pin_index_t pin);
+
+Std_ReturnType gpio_port_setup(port_index_t port, uint8 direction_mask, uint8 initial_value);
+Std_ReturnType gpio_port_write(port_index_t port, uint8 logic_mask);</code></pre>
+<p>تنادي وتمشي. مفيش struct تحضّره. وده معناه: مفيش RAM ضايعة، وأقل تعليمات.</p>
+<h3>السر في ترتيب gpio_pin_setup</h3>
+<pre><code>/* Step 1: Initial Logic first (glitch-free output) */
+if (GPIO_DIRECTION_OUTPUT == direction) {
+    if (GPIO_HIGH == logic) { SET_BIT(*(lat_registers[port]), pin); }
+    else                    { CLEAR_BIT(*(lat_registers[port]), pin); }
+    CLEAR_BIT(*(tris_registers[port]), pin);    /* 0 = Output */
+}</code></pre>
+<p>الأول بيكتب في LAT، وبعدين يخلّي الرجل Output. فاكر الأداة بتاعة الدرس الأول؟ ده بالظبط: القيمة تستنى في الـ Latch، والرجل تطلع وهي جاهزة. لو عكست الترتيب، الرجل هتبقى Output للحظة بالقيمة القديمة اللي في LAT (اللي ممكن تكون أي حاجة بعد الريست)، وبعدين تتصلح. اللحظة دي اسمها glitch. مع ليد مش هتلاحظها. مع ريلاي قافل باب، أو موتور، أو Active-Low LED، هتلاحظها.</p>
+
+<h2>Struct API: الرجل كحاجة واحدة</h2>
+<pre><code>typedef struct {
+    uint8 port      : 3;
+    uint8 pin       : 3;
+    uint8 direction : 1;
+    uint8 logic     : 1;
+} pin_config_t;          /* 3 + 3 + 1 + 1 = 8 بت = بايت واحد */
+
+Std_ReturnType gpio_pin_initialize(const pin_config_t *_pin_config);
+Std_ReturnType gpio_pin_write_logic(const pin_config_t *_pin_config, logic_t logic);
+Std_ReturnType gpio_pin_toggle_logic(const pin_config_t *_pin_config);</code></pre>
+<p>الأرقام اللي بعد النقطتين اسمها bitfields. بتقول للكومبايلر "الحقل ده محتاج 3 بت بس". 3 بت بتشيل من 0 لـ 7، كفاية للبورتات (0–4) وللرجول (0–7). فالـ struct كله بايت. لو كان كل حقل uint8 عادي كان هياخد 4 بايت.</p>
+<p>الفايدة الحقيقية إنك بتعرّف الرجل مرة واحدة فوق في الكود، وبعدين تبعتها في كل حتة كمؤشر واحد بدل أربع باراميترز. ولو الرجل اتنقلت، بتغيّر سطر واحد.</p>
+<pre><code>const pin_config_t buzzer = { .port = PORTD_INDEX, .pin = GPIO_PIN7,
+                              .direction = GPIO_DIRECTION_OUTPUT, .logic = GPIO_LOW };
+gpio_pin_initialize(&amp;buzzer);
+gpio_pin_write_logic(&amp;buzzer, GPIO_HIGH);</code></pre>
+
+<h2>أستخدم أنهي؟</h2>
+<table>
+<tr><th>الموقف</th><th>الأنسب</th><th>ليه</th></tr>
+<tr><td>مشروع صغير، سرعة مهمة</td><td>Direct</td><td>نداء واحد، صفر struct</td></tr>
+<tr><td>إعدادات رجول كتير ثابتة</td><td>Struct</td><td>تعرّفهم <code>const</code> في مكان واحد ويتحطوا في الـ Flash</td></tr>
+<tr><td>بتبعت الرجل لدوال تانية</td><td>Struct</td><td>مؤشر واحد بدل 4 باراميترز</td></tr>
+<tr><td>جوّه إنتربت</td><td>Direct</td><td>أقل تعليمات</td></tr>
+</table>
+<p>وعلشان متختارش مرة واحدة وتتحبس، الاتنين موجودين، وكل واحد ليه مفتاح في device_config.h. لو مش محتاج واحد، اقفله، والكومبايلر مش هيحطه في الـ Flash.</p>
+
+<h2>Analog ولا Digital</h2>
+<p>رجول زي RA0 و RB0 ممكن تبقى دخل للـ ADC. بعد الريست أغلبها بتبقى Analog، والرجل الـ Analog لو قريتها كـ Digital بتطلع صفر دايمًا. ده من أشهر مقالب الـ PIC: الزرار على RA0 مبيستجبش، والكود سليم.</p>
+<p>علشان كده فيه <code>gpio_init()</code> اللي بتحط <code>ADCON1 PCFG = 0x0F</code> وتخلي الكل Digital، وأول سطر في <code>main</code> بيناديها. وكمان <code>gpio_pin_setup</code> نفسها بتحوّل الرجل Digital لوحدها، إلا لو الـ ADC طالبها. ولو عايز رجل Analog بإيدك فيه <code>gpio_pin_set_analog()</code>.</p>
+<p>جوّه الملف فيه جدول بيقول كل رجل تبع أنهي قناة: RA0 هي AN0، و RB0 هي AN12، وهكذا. والـ PIC ده مش بيخليك تختار كل قناة لوحدها، بيخليك تقول "من AN0 لحد ANn يبقوا Analog". فالدرايفر بيدوّر على أعلى قناة اتطلبت ويحسب PCFG على أساسها. يعني لو طلبت AN3 Analog، AN0 لـ AN2 هيبقوا Analog معاها غصب عنك. ده قيد في الهاردوير، مش في الدرايفر.</p>
+
+<h2>Pull-ups على PORTB</h2>
+<p>الزرار محتاج مقاومة تشد الرجل لـ 5V وهو مش مضغوط، وإلا الرجل هتبقى سايبة وتقرا أي حاجة. PORTB فيه مقاومات جوّه الشريحة بتعمل كده، وبتتفتح كلها مع بعض بـ <code>gpio_portb_pullup_enable()</code>. فالزرار بيتوصل بين الرجل والأرضي على طول. مضغوط = 0، سايب = 1. مشروع العدّاد بيستخدم ده.</p>
+
+<div class="quiz"><p class="q">ليه <code>gpio_pin_setup</code> بتكتب في LAT قبل TRIS؟</p>
+<button>علشان أسرع</button><button data-ok>علشان الرجل تطلع Output وهي شايلة القيمة الصح من أول لحظة</button><button>مش فارقة</button>
+<p class="why">لو TRIS الأول، الرجل هتطلع للحظة بالقيمة القديمة اللي في الـ Latch، وده glitch ممكن يحرك ريلاي أو موتور.</p></div>
+<div class="quiz"><p class="q">ندهت <code>gpio_pin_write(PORTE_INDEX, GPIO_PIN5, GPIO_HIGH)</code>. إيه اللي هيحصل؟</p>
+<button>RE5 هتطلع HIGH</button><button>الشريحة هتعمل ريست</button><button data-ok>هترجع E_NOT_OK ومش هتلمس أي ريجستر</button>
+<p class="why">PORTE فيه 3 رجول بس (RE0–RE2). الفحص <code>IS_VALID_PORT_PIN</code> بيمسكها قبل ما توصل للهاردوير.</p></div>
