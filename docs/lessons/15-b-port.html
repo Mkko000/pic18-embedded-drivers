@@ -16,7 +16,11 @@
 <h2>v2: ماسك للرجول الموجودة</h2>
 <div class="goal"><b>الهدف:</b> عمليات البورت متلمسش غير البتات اللي ليها رجول.</div>
 <pre class="diff"><code>+static const uint8 port_valid_pin_mask[PORT_MAX_NUMBER] = {
-+    0xFF,                   /* PORTA */
++#if OSC_MODE == OSC_MODE_INTIO67
++    0xFF,                   /* PORTA: RA6/RA7 I/O */
++#else
++    0x3F,                   /* PORTA: RA6/RA7 = OSC pins */
++#endif
 +    0xFF,                   /* PORTB */
 +    0xFF,                   /* PORTC */
 +    0xFF,                   /* PORTD */

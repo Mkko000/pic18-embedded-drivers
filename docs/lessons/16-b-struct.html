@@ -5,6 +5,7 @@
     return gpio_pin_setup(_pin_config-&gt;port, _pin_config-&gt;pin,
                           _pin_config-&gt;direction, _pin_config-&gt;logic);
 }</code></pre>
+<p>ولما جربنا ده على XC8 v3 فعلًا طلعت مفاجأة: لو بعت للدالة struct <code>const</code> قاعد في الـ Flash، وفي حتة تانية struct في الـ RAM (الليد درايفر بيعمل كده)، الكومبايلر بيقف عند <code>_pin_config-&gt;pin</code> ويقول error (712). الحل في الريبو: أول سطر في كل دالة Struct بقى <code>pin_config_t cfg = gpio_cfg_copy(_pin_config);</code>، وبعدها الشغل كله على <code>cfg.port</code> و<code>cfg.pin</code>. فحص الـ NULL لسه على المؤشر الأصلي.</p>
 <p>سطر واحد، ومفيش تكرار. فين المشكلة؟ اتنين.</p>
 <p><b>NULL:</b> لو حد بعت NULL، <code>_pin_config-&gt;port</code> بيقرا من عنوان 0. الدالة دي لازم تفحص قبل ما تلمس المؤشر.</p>
 <p><b>الاعتماد:</b> اقفل <code>GPIO_DIRECT_API_ENABLE</code> في الكونفيج. <code>gpio_pin_setup</code> مش موجودة، والـ Struct API وقع. يعني المفتاحين مش مستقلين، واحد فيهم كدّاب.</p>
