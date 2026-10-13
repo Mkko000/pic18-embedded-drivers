@@ -50,10 +50,10 @@ flowchart TD
 
 ```text
 pic18-embedded-drivers/
-├── application.c              # Demo application + configuration bits
+├── application.c              # Demo application (LED blink)
 ├── Config/
-│   ├── device_config.h
-│   └── config_bits.c          # ⭐ Configuration bits (fuses) + oscillator selection        # ⭐ Single point of configuration
+│   ├── device_config.h        # ⭐ Single point of configuration
+│   └── config_bits.c          # ⭐ Configuration bits (fuses) + oscillator selection
 ├── Common/
 │   ├── mcal_std_types.h       # Fixed-width types, Std_ReturnType, E_OK/E_NOT_OK
 │   ├── std_macros.h           # Bit manipulation & register-access macros
@@ -72,6 +72,10 @@ pic18-embedded-drivers/
 │   ├── 02_Traffic_Light/
 │   ├── 03_Binary_Counter/
 │   └── 04_Morse_Code/
+├── examples/
+│   ├── gpio_struct_api_example.c   # Minimal Struct API blink
+│   └── gpio_direct_api_example.c   # Minimal Direct API blink
+├── CHANGELOG.md
 ├── LICENSE
 └── README.md
 ```
@@ -200,6 +204,8 @@ void main(void) {
 }
 ```
 
+Minimal stand-alone examples for each API live in [`examples/`](examples): [Struct API](examples/gpio_struct_api_example.c) · [Direct API](examples/gpio_direct_api_example.c).
+
 GPIO can also be used directly:
 
 ```c
@@ -321,6 +327,10 @@ Embedded Systems Engineer
 ⭐ If you find this project useful, consider giving it a star!
 
 </div>
+
+## 📝 Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## 📄 License
 
