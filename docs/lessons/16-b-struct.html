@@ -12,40 +12,56 @@
 
 <h2>v2: helpers مشتركة</h2>
 <div class="goal"><b>الهدف:</b> الاتنين يشتغلوا على نفس الـ helpers الداخلية، ومحدش فيهم ينادي التاني.</div>
-<p>إيه اللي فعلًا مشترك؟ الجداول (<code>tris_registers</code> وأخواتها)، و <code>gpio_pin_auto_digital</code>، و <code>gpio_reg_write_masked</code>. دول متعرّفين برّه أي <code>#if</code> خاص بـ API، فموجودين دايمًا طول ما الـ GPIO مفتوح.</p>
-<pre><code>Std_ReturnType gpio_pin_initialize(const pin_config_t *_pin_config) {
-    Std_ReturnType ret = E_OK;
+<p>إيه اللي فعلًا مشترك؟ الجداول (<code>tris_registers</code> وأخواتها)، و <code>gpio_pin_auto_digital</code>، و <code>gpio_reg_write_masked</code>. دول متعرّفين جوه <code>#if</code> واحد بس: &quot;لو أي API من الاتنين مفتوح&quot;. يعني مش تبع Direct ولا تبع Struct، ولو قفلت الاتنين بيختفوا ومفيش warning عن متغير مش مستخدم.</p>
+<pre class="diff"><code> Std_ReturnType gpio_pin_initialize(const pin_config_t *_pin_config) {
+     Std_ReturnType ret = E_OK;
++    pin_config_t   cfg = gpio_cfg_copy(_pin_config);
 
-    if (NULL == _pin_config) {
-        ret = E_NOT_OK;
+     if (NULL == _pin_config) {
+         ret = E_NOT_OK;
+     }
+-    else if (!IS_VALID_PORT_PIN(_pin_config-&gt;port, _pin_config-&gt;pin) ||
+-             !IS_VALID_DIRECTION(_pin_config-&gt;direction) ||
+-             !IS_VALID_LOGIC(_pin_config-&gt;logic)) {
++    else if (!IS_VALID_PORT_PIN(cfg.port, cfg.pin) ||
++             !IS_VALID_DIRECTION(cfg.direction) ||
++             !IS_VALID_LOGIC(cfg.logic)) {
+         ret = E_NOT_OK;
+     }
+     else {
+-        port_index_t port = (port_index_t)_pin_config-&gt;port;
+-        pin_index_t  pin  = (pin_index_t)_pin_config-&gt;pin;
++        port_index_t port = (port_index_t)cfg.port;
++        pin_index_t  pin  = (pin_index_t)cfg.pin;
+
+         gpio_pin_auto_digital(port, pin);
+
+-        if (GPIO_HIGH == _pin_config-&gt;logic) {
++        if (GPIO_HIGH == cfg.logic) {
+             SET_BIT(*(lat_registers[port]), pin);
+         } else {
+             CLEAR_BIT(*(lat_registers[port]), pin);
+         }
+
+-        if (GPIO_DIRECTION_OUTPUT == _pin_config-&gt;direction) {
++        if (GPIO_DIRECTION_OUTPUT == cfg.direction) {
+             CLEAR_BIT(*(tris_registers[port]), pin);
+         } else {
+             SET_BIT(*(tris_registers[port]), pin);
+         }
+     }
+     return ret;
+ }</code></pre>
+<p>السطور اللي عليها <code>-</code> هي النسخة الأولى اللي كتبناها، واللي عليها <code>+</code> هي اللي في الريبو دلوقتي بعد مشكلة error 712. و <code>gpio_cfg_copy</code> نفسها صغيرة:</p>
+<pre><code>static inline pin_config_t gpio_cfg_copy(const pin_config_t *_pin_config) {
+    pin_config_t cfg = {0, 0, 0, 0};
+    if (NULL != _pin_config) {
+        cfg = *_pin_config;
     }
-    else if (!IS_VALID_PORT_PIN(_pin_config-&gt;port, _pin_config-&gt;pin) ||
-             !IS_VALID_DIRECTION(_pin_config-&gt;direction) ||
-             !IS_VALID_LOGIC(_pin_config-&gt;logic)) {
-        ret = E_NOT_OK;
-    }
-    else {
-        port_index_t port = (port_index_t)_pin_config-&gt;port;
-        pin_index_t  pin  = (pin_index_t)_pin_config-&gt;pin;
-
-        gpio_pin_auto_digital(port, pin);
-
-        if (GPIO_HIGH == _pin_config-&gt;logic) {
-            SET_BIT(*(lat_registers[port]), pin);
-        } else {
-            CLEAR_BIT(*(lat_registers[port]), pin);
-        }
-
-        if (GPIO_DIRECTION_OUTPUT == _pin_config-&gt;direction) {
-            CLEAR_BIT(*(tris_registers[port]), pin);
-        } else {
-            SET_BIT(*(tris_registers[port]), pin);
-        }
-    }
-    return ret;
+    return cfg;
 }</code></pre>
 <p>أطول من v1، أيوه. وفيه شبه تكرار مع <code>gpio_pin_setup</code>. ده تمن الاستقلال، واخترنا ندفعه. لاحظ حاجة صغيرة: هنا الـ LAT بيتكتب حتى لو الرجل Input. ده مقصود: الرجل Input دلوقتي، بس لو اتحولت Output بعدين هتطلع بالقيمة دي، مش بقيمة عشوائية.</p>
-<p>وليه النسخ لـ <code>port</code> و <code>pin</code> محليين؟ كل <code>_pin_config-&gt;port</code> قراية من struct فيه bitfields، يعني shift و AND كل مرة. نقراه مرة ونستخدمه أربع.</p>
+<p>وليه النسخ لـ <code>port</code> و <code>pin</code> محليين؟ كل <code>cfg.port</code> قراية من struct فيه bitfields، يعني shift و AND كل مرة. نقراه مرة ونستخدمه أربع.</p>
 
 <h2>v3: مفاتيح الـ #if بتشتغل بجد</h2>
 <pre><code>#if GPIO_MODULE_ENABLE == CONFIG_ENABLE
@@ -89,14 +105,16 @@ gpio_pin_initialize(&amp;PIN_RELAY);</code></pre>
 <details><summary>اعرض الحل</summary>
 <pre><code>Std_ReturnType gpio_pin_toggle_logic(const pin_config_t *_pin_config) {
     Std_ReturnType ret = E_OK;
+    pin_config_t   cfg = gpio_cfg_copy(_pin_config);
+
     if (NULL == _pin_config) {
         ret = E_NOT_OK;
     }
-    else if (!IS_VALID_PORT_PIN(_pin_config-&gt;port, _pin_config-&gt;pin)) {
+    else if (!IS_VALID_PORT_PIN(cfg.port, cfg.pin)) {
         ret = E_NOT_OK;
     }
     else {
-        TOGGLE_BIT(*(lat_registers[_pin_config-&gt;port]), _pin_config-&gt;pin);
+        TOGGLE_BIT(*(lat_registers[cfg.port]), cfg.pin);
     }
     return ret;
 }</code></pre></details></details>
