@@ -30,6 +30,10 @@
 #include "../../MCAL_Layer/GPIO/hal_gpio.h"      /* GPIO driver                 */
 #include "../../ECU_Layer/LED/ecu_led.h"         /* LED driver                  */
 
+#if LED_MODULE_ENABLE != CONFIG_ENABLE
+    #error "This program uses the LED driver: set LED_MODULE_ENABLE to CONFIG_ENABLE in Config/device_config.h"
+#endif
+
 /* =========================================================================
  * Timing (PARIS standard: UNIT_MS = 1200 / WPM)
  * ========================================================================= */

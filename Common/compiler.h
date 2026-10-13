@@ -62,7 +62,9 @@
 #endif
 
 /* ==================== NOP Instruction ==================== */
-#if defined(COMPILER_XC8)
+#if defined(NOP)
+    /* <xc.h> already provides NOP() on XC8: keep it, do not redefine */
+#elif defined(COMPILER_XC8)
     #define NOP()               __asm("NOP")
 #elif defined(COMPILER_GCC)
     #define NOP()               __asm__ __volatile__("nop")

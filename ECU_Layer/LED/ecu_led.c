@@ -29,7 +29,7 @@ static inline pin_config_t led_to_pin_config(const led_config_t *led, logic_t lo
     cfg.port      = led->port;
     cfg.pin       = led->pin;
     cfg.direction = GPIO_DIRECTION_OUTPUT;
-    cfg.logic     = logic;
+    cfg.logic     = (uint8)logic;
     return cfg;
 }
 #endif

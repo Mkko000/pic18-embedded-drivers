@@ -17,6 +17,10 @@
 #include "../Config/device_config.h"
 #include "../MCAL_Layer/GPIO/hal_gpio.h"
 
+#if (GPIO_STRUCT_API_ENABLE != CONFIG_ENABLE) || (GPIO_PORT_PIN_CONFIGURATIONS != CONFIG_ENABLE)
+    #error "This program uses the GPIO Struct API: set GPIO_STRUCT_API_ENABLE and GPIO_PORT_PIN_CONFIGURATIONS to CONFIG_ENABLE in Config/device_config.h"
+#endif
+
 /** @brief RC0 as output, starting LOW. */
 static const pin_config_t led_pin = {
     .port      = PORTC_INDEX,

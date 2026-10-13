@@ -36,6 +36,10 @@
 #include "../../Config/device_config.h"          /* _XTAL_FREQ, feature toggles */
 #include "../../MCAL_Layer/GPIO/hal_gpio.h"      /* GPIO driver (Direct API)    */
 
+#if GPIO_DIRECT_API_ENABLE != CONFIG_ENABLE
+    #error "This program uses the GPIO Direct API: set GPIO_DIRECT_API_ENABLE to CONFIG_ENABLE in Config/device_config.h"
+#endif
+
 /* =========================================================================
  * Lamp Encoding (one 3-bit group per head: bit0=R, bit1=Y, bit2=G)
  * ========================================================================= */

@@ -17,6 +17,10 @@
 #include "../Config/device_config.h"
 #include "../MCAL_Layer/GPIO/hal_gpio.h"
 
+#if GPIO_DIRECT_API_ENABLE != CONFIG_ENABLE
+    #error "This program uses the GPIO Direct API: set GPIO_DIRECT_API_ENABLE to CONFIG_ENABLE in Config/device_config.h"
+#endif
+
 void main(void)
 {
     (void)gpio_init();

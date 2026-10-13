@@ -9,6 +9,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sem
 - `CHANGELOG.md`.
 ### Changed
 - README: fixed project-structure tree, added examples and changelog links.
+- Projects and examples stop with a clear `#error` when the GPIO API (or LED driver) they use is disabled in `device_config.h`.
+- PORTA valid-pin mask follows `OSC_MODE`: RA6/RA7 are excluded from port-wide operations unless `OSC_MODE_INTIO67` (they are OSC1/OSC2 and read back as 0).
+### Fixed
+- Struct API failed to build on XC8 v3 (error 712) when a `const` (flash) `pin_config_t` and a RAM one were both passed to it (e.g. Struct-only + LED driver); every Struct API function now works on a RAM copy of the config.
+- `NOP()` was redefined over the one from `<xc.h>` (warning on every file).
+- No unused LAT/PORT tables or helpers when both GPIO APIs are disabled; removed an implicit-conversion warning in the LED driver.
 
 ## [2.1.0] - 2026-10-11
 ### Added

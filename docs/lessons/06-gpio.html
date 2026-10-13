@@ -58,6 +58,7 @@ Std_ReturnType gpio_pin_toggle_logic(const pin_config_t *_pin_config);</code></p
                               .direction = GPIO_DIRECTION_OUTPUT, .logic = GPIO_LOW };
 gpio_pin_initialize(&amp;buzzer);
 gpio_pin_write_logic(&amp;buzzer, GPIO_HIGH);</code></pre>
+<p>حتة صغيرة حصلت معانا فعلًا: الـ <code>buzzer</code> هنا <code>const</code>، يعني قاعد في الـ Flash، والليد درايفر بيبعت struct قاعد في الـ RAM لنفس الدالة. XC8 v3 لما بيلاقي مؤشر ممكن يشاور على المكانين، بيرفض يقرا الـ bitfields منه وبيطلع error (712) &quot;can't generate code&quot;. عشان كده كل دوال الـ Struct API أول حاجة بتعملها إنها تاخد نسخة من الـ struct في الـ RAM (<code>gpio_cfg_copy</code>) وتشتغل عليها. بايت واحد زيادة على الـ stack، والكود بقى يتبني في كل الحالات.</p>
 
 <h2>أستخدم أنهي؟</h2>
 <table>

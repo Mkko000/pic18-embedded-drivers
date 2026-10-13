@@ -38,6 +38,7 @@
  */
 static volatile uint8 * const tris_registers[PORT_MAX_NUMBER] = {&TRISA, &TRISB, &TRISC, &TRISD, &TRISE};
 
+#if (GPIO_DIRECT_API_ENABLE == CONFIG_ENABLE) || (GPIO_STRUCT_API_ENABLE == CONFIG_ENABLE)
 /**
  * @brief Pointers to LAT registers (output latch).
  * @note  Used for WRITE operations to avoid RMW issues.
@@ -56,12 +57,17 @@ static volatile uint8 * const port_registers[PORT_MAX_NUMBER] = {&PORTA, &PORTB,
  *        Port-wide operations never touch bits outside this mask.
  */
 static const uint8 port_valid_pin_mask[PORT_MAX_NUMBER] = {
-    0xFF,                   /* PORTA: RA0-RA7 (RA6/RA7 are OSC pins in HS mode) */
+#if OSC_MODE == OSC_MODE_INTIO67
+    0xFF,                   /* PORTA: RA0-RA7 (internal oscillator: RA6/RA7 are I/O) */
+#else
+    0x3F,                   /* PORTA: RA0-RA5 (RA6/RA7 = OSC2/OSC1 in XT/HS/HSPLL) */
+#endif
     0xFF,                   /* PORTB: RB0-RB7 */
     0xFF,                   /* PORTC: RC0-RC7 */
     0xFF,                   /* PORTD: RD0-RD7 */
     PORTE_VALID_PIN_MASK    /* PORTE: RE0-RE2 */
 };
+#endif /* any GPIO API enabled (these tables are unused otherwise) */
 
 /* =========================================================================
  * Analog / Digital Configuration (Internal)
@@ -157,6 +163,8 @@ static Std_ReturnType gpio_pin_make_digital(port_index_t port, pin_index_t pin) 
  * Shared Low-Level Helpers (used by BOTH APIs, no API depends on the other)
  * ========================================================================= */
 
+#if (GPIO_DIRECT_API_ENABLE == CONFIG_ENABLE) || (GPIO_STRUCT_API_ENABLE == CONFIG_ENABLE)
+
 /**
  * @brief Make a pin digital before using it as digital I/O, unless the ADC
  *        module is enabled and the pin was requested analog (best effort).
@@ -186,6 +194,8 @@ static inline void gpio_reg_write_masked(volatile uint8 * const reg, port_index_
     uint8 valid = port_valid_pin_mask[port];
     *reg = (uint8)((*reg & (uint8)~valid) | (value & valid));
 }
+
+#endif /* any GPIO API enabled */
 
 /* =========================================================================
  * Driver Initialization
@@ -489,23 +499,39 @@ Std_ReturnType gpio_port_toggle(port_index_t port) {
 #if GPIO_PORT_PIN_CONFIGURATIONS == CONFIG_ENABLE
 
 /**
+ * @brief Copy a pin configuration into RAM (all-zero if NULL).
+ * @details The caller's pin_config_t may live in flash (`static const`) or in
+ *          RAM. XC8 cannot generate code for bit-field accesses with variable
+ *          shifts through such a mixed-space pointer (error 712), so every
+ *          Struct API function works on a local RAM copy instead.
+ */
+static inline pin_config_t gpio_cfg_copy(const pin_config_t *_pin_config) {
+    pin_config_t cfg = {0, 0, 0, 0};
+    if (NULL != _pin_config) {
+        cfg = *_pin_config;
+    }
+    return cfg;
+}
+
+/**
  * @brief Initialize pin direction only.
  */
 Std_ReturnType gpio_pin_direction_initialize(const pin_config_t *_pin_config) {
     Std_ReturnType ret = E_OK;
+    pin_config_t   cfg = gpio_cfg_copy(_pin_config);
 
     if (NULL == _pin_config) {
         ret = E_NOT_OK;
     }
-    else if (!IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin) ||
-             !IS_VALID_DIRECTION(_pin_config->direction)) {
+    else if (!IS_VALID_PORT_PIN(cfg.port, cfg.pin) ||
+             !IS_VALID_DIRECTION(cfg.direction)) {
         ret = E_NOT_OK;
     }
-    else if (GPIO_DIRECTION_OUTPUT == _pin_config->direction) {
-        CLEAR_BIT(*(tris_registers[_pin_config->port]), _pin_config->pin);
+    else if (GPIO_DIRECTION_OUTPUT == cfg.direction) {
+        CLEAR_BIT(*(tris_registers[cfg.port]), cfg.pin);
     }
     else {
-        SET_BIT(*(tris_registers[_pin_config->port]), _pin_config->pin);
+        SET_BIT(*(tris_registers[cfg.port]), cfg.pin);
     }
 
     return ret;
@@ -517,15 +543,16 @@ Std_ReturnType gpio_pin_direction_initialize(const pin_config_t *_pin_config) {
 Std_ReturnType gpio_pin_get_direction_status(const pin_config_t *_pin_config,
                                               direction_t *direction_status) {
     Std_ReturnType ret = E_OK;
+    pin_config_t   cfg = gpio_cfg_copy(_pin_config);
 
     if ((NULL == _pin_config) || (NULL == direction_status)) {
         ret = E_NOT_OK;
     }
-    else if (!IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin)) {
+    else if (!IS_VALID_PORT_PIN(cfg.port, cfg.pin)) {
         ret = E_NOT_OK;
     }
     else {
-        *direction_status = (READ_BIT(*(tris_registers[_pin_config->port]), _pin_config->pin) == 0) ?
+        *direction_status = (READ_BIT(*(tris_registers[cfg.port]), cfg.pin) == 0) ?
                             GPIO_DIRECTION_OUTPUT : GPIO_DIRECTION_INPUT;
     }
 
@@ -537,18 +564,19 @@ Std_ReturnType gpio_pin_get_direction_status(const pin_config_t *_pin_config,
  */
 Std_ReturnType gpio_pin_write_logic(const pin_config_t *_pin_config, logic_t logic) {
     Std_ReturnType ret = E_OK;
+    pin_config_t   cfg = gpio_cfg_copy(_pin_config);
 
     if (NULL == _pin_config) {
         ret = E_NOT_OK;
     }
-    else if (!IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin) || !IS_VALID_LOGIC(logic)) {
+    else if (!IS_VALID_PORT_PIN(cfg.port, cfg.pin) || !IS_VALID_LOGIC(logic)) {
         ret = E_NOT_OK;
     }
     else if (GPIO_HIGH == logic) {
-        SET_BIT(*(lat_registers[_pin_config->port]), _pin_config->pin);
+        SET_BIT(*(lat_registers[cfg.port]), cfg.pin);
     }
     else {
-        CLEAR_BIT(*(lat_registers[_pin_config->port]), _pin_config->pin);
+        CLEAR_BIT(*(lat_registers[cfg.port]), cfg.pin);
     }
 
     return ret;
@@ -559,15 +587,16 @@ Std_ReturnType gpio_pin_write_logic(const pin_config_t *_pin_config, logic_t log
  */
 Std_ReturnType gpio_pin_read_logic(const pin_config_t *_pin_config, logic_t *logic) {
     Std_ReturnType ret = E_OK;
+    pin_config_t   cfg = gpio_cfg_copy(_pin_config);
 
     if ((NULL == _pin_config) || (NULL == logic)) {
         ret = E_NOT_OK;
     }
-    else if (!IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin)) {
+    else if (!IS_VALID_PORT_PIN(cfg.port, cfg.pin)) {
         ret = E_NOT_OK;
     }
     else {
-        *logic = (READ_BIT(*(port_registers[_pin_config->port]), _pin_config->pin) == 1) ?
+        *logic = (READ_BIT(*(port_registers[cfg.port]), cfg.pin) == 1) ?
                  GPIO_HIGH : GPIO_LOW;
     }
 
@@ -579,15 +608,16 @@ Std_ReturnType gpio_pin_read_logic(const pin_config_t *_pin_config, logic_t *log
  */
 Std_ReturnType gpio_pin_read_latch_logic(const pin_config_t *_pin_config, logic_t *logic) {
     Std_ReturnType ret = E_OK;
+    pin_config_t   cfg = gpio_cfg_copy(_pin_config);
 
     if ((NULL == _pin_config) || (NULL == logic)) {
         ret = E_NOT_OK;
     }
-    else if (!IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin)) {
+    else if (!IS_VALID_PORT_PIN(cfg.port, cfg.pin)) {
         ret = E_NOT_OK;
     }
     else {
-        *logic = (READ_BIT(*(lat_registers[_pin_config->port]), _pin_config->pin) == 1) ?
+        *logic = (READ_BIT(*(lat_registers[cfg.port]), cfg.pin) == 1) ?
                  GPIO_HIGH : GPIO_LOW;
     }
 
@@ -599,15 +629,16 @@ Std_ReturnType gpio_pin_read_latch_logic(const pin_config_t *_pin_config, logic_
  */
 Std_ReturnType gpio_pin_toggle_logic(const pin_config_t *_pin_config) {
     Std_ReturnType ret = E_OK;
+    pin_config_t   cfg = gpio_cfg_copy(_pin_config);
 
     if (NULL == _pin_config) {
         ret = E_NOT_OK;
     }
-    else if (!IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin)) {
+    else if (!IS_VALID_PORT_PIN(cfg.port, cfg.pin)) {
         ret = E_NOT_OK;
     }
     else {
-        TOGGLE_BIT(*(lat_registers[_pin_config->port]), _pin_config->pin);
+        TOGGLE_BIT(*(lat_registers[cfg.port]), cfg.pin);
     }
 
     return ret;
@@ -618,30 +649,31 @@ Std_ReturnType gpio_pin_toggle_logic(const pin_config_t *_pin_config) {
  */
 Std_ReturnType gpio_pin_initialize(const pin_config_t *_pin_config) {
     Std_ReturnType ret = E_OK;
+    pin_config_t   cfg = gpio_cfg_copy(_pin_config);
 
     if (NULL == _pin_config) {
         ret = E_NOT_OK;
     }
-    else if (!IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin) ||
-             !IS_VALID_DIRECTION(_pin_config->direction) ||
-             !IS_VALID_LOGIC(_pin_config->logic)) {
+    else if (!IS_VALID_PORT_PIN(cfg.port, cfg.pin) ||
+             !IS_VALID_DIRECTION(cfg.direction) ||
+             !IS_VALID_LOGIC(cfg.logic)) {
         ret = E_NOT_OK;
     }
     else {
-        port_index_t port = (port_index_t)_pin_config->port;
-        pin_index_t  pin  = (pin_index_t)_pin_config->pin;
+        port_index_t port = (port_index_t)cfg.port;
+        pin_index_t  pin  = (pin_index_t)cfg.pin;
 
         /* Step 0: Digital mode (unless ADC claimed the pin) */
         gpio_pin_auto_digital(port, pin);
 
         /* Step 1: Latch first, then direction (glitch-free output) */
-        if (GPIO_HIGH == _pin_config->logic) {
+        if (GPIO_HIGH == cfg.logic) {
             SET_BIT(*(lat_registers[port]), pin);
         } else {
             CLEAR_BIT(*(lat_registers[port]), pin);
         }
 
-        if (GPIO_DIRECTION_OUTPUT == _pin_config->direction) {
+        if (GPIO_DIRECTION_OUTPUT == cfg.direction) {
             CLEAR_BIT(*(tris_registers[port]), pin);
         } else {
             SET_BIT(*(tris_registers[port]), pin);
@@ -656,16 +688,17 @@ Std_ReturnType gpio_pin_initialize(const pin_config_t *_pin_config) {
  */
 Std_ReturnType gpio_pin_deinitialize(const pin_config_t *_pin_config) {
     Std_ReturnType ret = E_OK;
+    pin_config_t   cfg = gpio_cfg_copy(_pin_config);
 
     if (NULL == _pin_config) {
         ret = E_NOT_OK;
     }
-    else if (!IS_VALID_PORT_PIN(_pin_config->port, _pin_config->pin)) {
+    else if (!IS_VALID_PORT_PIN(cfg.port, cfg.pin)) {
         ret = E_NOT_OK;
     }
     else {
-        SET_BIT(*(tris_registers[_pin_config->port]), _pin_config->pin);
-        CLEAR_BIT(*(lat_registers[_pin_config->port]), _pin_config->pin);
+        SET_BIT(*(tris_registers[cfg.port]), cfg.pin);
+        CLEAR_BIT(*(lat_registers[cfg.port]), cfg.pin);
     }
 
     return ret;
