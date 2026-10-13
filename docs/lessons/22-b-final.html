@@ -1,0 +1,129 @@
+<p>لو وصلت هنا وعملت التمارين اللي فاتت، إنت كتبت درايفر GPIO ودرايفر ليد ومشروع بيهم. التمارين دي أكبر شوية، وكل واحد بيجمع أكتر من درس. ابدأ بالمستوى اللي مريحك، ومتفتحش الحل غير بعد ما يبقى عندك كود بيتبني.</p>
+
+<h2>المستوى الأول</h2>
+<details class="ex"><summary>1. Knight Rider بالـ Struct API بس</summary>
+<p class="task">اقفل <code>GPIO_DIRECT_API_ENABLE</code>. اعمل تأثير Knight Rider على PORTD (ليد واحدة رايحة جاية) باستخدام دوال البورت بتاعة الـ Struct API.</p>
+<details><summary>اعرض الحل</summary>
+<pre><code>void main(void) {
+    uint8 pos = 0;
+    sint8 dir = 1;
+    (void)gpio_init();
+    (void)gpio_port_initialize(PORTD_INDEX, GPIO_PORT_ALL_OUTPUT, GPIO_PORT_ALL_LOW);
+    while (1) {
+        (void)gpio_port_write_logic(PORTD_INDEX, (uint8)(1U &lt;&lt; pos));
+        __delay_ms(80);
+        if ((7 == pos &amp;&amp; dir &gt; 0) || (0 == pos &amp;&amp; dir &lt; 0)) { dir = (sint8)-dir; }
+        pos = (uint8)(pos + dir);
+    }
+}</code></pre>
+<p>لو اتبنى من غير أخطاء، ده إثبات إن المفاتيح مستقلة فعلًا.</p></details></details>
+
+<details class="ex"><summary>2. قراية البورت بالحالة</summary>
+<p class="task">4 زراير على RB4..RB7 (pull-ups). اعرض على RD4..RD7 مين مضغوط، بحيث الليد تنوّر طول ما زرارها مضغوط. سطرين في اللوب.</p>
+<details><summary>اعرض الحل</summary>
+<pre><code>uint8 v;
+(void)gpio_port_read(PORTB_INDEX, &amp;v);
+(void)gpio_port_write(PORTD_INDEX, (uint8)(~v &amp; 0xF0));</code></pre>
+<p>الـ <code>~</code> لأن الضغطة LOW، والـ <code>&amp; 0xF0</code> بيسيب بتات الزراير بس. خد بالك إن <code>gpio_port_write</code> بتكتب البايت كله، فالنص التحتاني من PORTD هيتصفّر كل لفة. لو عليه حاجة تانية، استخدم <code>gpio_port_write_bits</code> بتاعة تمرين درس البورت.</p></details></details>
+
+<h2>المستوى التاني</h2>
+<details class="ex"><summary>3. درايفر زرار كامل (ECU)</summary>
+<p class="task">اكتب <code>ECU_Layer/Button/ecu_button.h/.c</code>: config فيه port و pin و active، و state فيه الـ debounce. دوال: <code>button_initialize</code>، و <code>button_update</code> (تتنادى كل 5ms)، و <code>button_was_pressed</code> (ترجع TRUE مرة واحدة لكل ضغطة). ضيف مفتاح <code>BUTTON_MODULE_ENABLE</code> (موجود فعلًا في device_config.h ومقفول، وفحص الـ #error بتاعه موجود).</p>
+<details><summary>اعرض حل مقترح</summary>
+<pre><code>typedef struct {
+    uint8 port : 3;  uint8 pin : 3;  uint8 active : 1;  uint8 reserved : 1;
+} button_config_t;
+
+typedef struct {
+    const button_config_t *cfg;
+    logic_t stable;
+    uint8   counter;
+    uint8   pressed_flag;
+} button_t;
+
+Std_ReturnType button_initialize(button_t *btn, const button_config_t *cfg) {
+    Std_ReturnType ret = E_OK;
+    if ((NULL == btn) || (NULL == cfg)) {
+        ret = E_NOT_OK;
+    } else {
+        btn-&gt;cfg = cfg;
+        btn-&gt;stable = (BUTTON_ACTIVE_LOW == cfg-&gt;active) ? GPIO_HIGH : GPIO_LOW;
+        btn-&gt;counter = 0;
+        btn-&gt;pressed_flag = 0;
+        ret = gpio_pin_setup((port_index_t)cfg-&gt;port, (pin_index_t)cfg-&gt;pin,
+                             GPIO_DIRECTION_INPUT, GPIO_LOW);
+    }
+    return ret;
+}
+
+Std_ReturnType button_update(button_t *btn) {
+    Std_ReturnType ret = E_OK;
+    logic_t raw = GPIO_LOW;
+    if (NULL == btn) { return E_NOT_OK; }
+    ret = gpio_pin_read((port_index_t)btn-&gt;cfg-&gt;port, (pin_index_t)btn-&gt;cfg-&gt;pin, &amp;raw);
+    if (E_OK == ret) {
+        if (raw != btn-&gt;stable) {
+            if (++btn-&gt;counter &gt;= 4) {
+                btn-&gt;stable = raw; btn-&gt;counter = 0;
+                if (raw == ((BUTTON_ACTIVE_LOW == btn-&gt;cfg-&gt;active) ? GPIO_LOW : GPIO_HIGH)) {
+                    btn-&gt;pressed_flag = 1;
+                }
+            }
+        } else { btn-&gt;counter = 0; }
+    }
+    return ret;
+}
+
+boolean_t button_was_pressed(button_t *btn) {
+    boolean_t p = FALSE;
+    if ((NULL != btn) &amp;&amp; btn-&gt;pressed_flag) { btn-&gt;pressed_flag = 0; p = TRUE; }
+    return p;
+}</code></pre>
+<p>لاحظ الفصل: config ثابت (const، في الـ Flash)، و state بيتغير (في الـ RAM). وفي <code>button_update</code> فيه return بدري، ده كسر لقاعدة الـ single exit؛ صلّحه كجزء من التمرين.</p></details></details>
+
+<details class="ex"><summary>4. 7-Segment</summary>
+<p class="task">شاشة 7-segment Common Cathode على PORTD (a..g على RD0..RD6). اكتب جدول أرقام من 0 لـ 9، ودالة <code>seg_show(uint8 digit)</code>. ولو الشاشة Common Anode؟ غيّر سطر واحد.</p>
+<details><summary>اعرض الحل</summary>
+<pre><code>static const uint8 seg_table[10] = {
+    0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F
+};
+#define SEG_COMMON_ANODE  0
+
+Std_ReturnType seg_show(uint8 digit) {
+    Std_ReturnType ret = E_NOT_OK;
+    if (digit &lt; 10) {
+        uint8 v = seg_table[digit];
+#if SEG_COMMON_ANODE
+        v = (uint8)~v;
+#endif
+        ret = gpio_port_write(PORTD_INDEX, (uint8)(v &amp; 0x7F));
+    }
+    return ret;
+}</code></pre>
+<p>نفس فكرة Active Low في الليد: المنطق المقلوب في مكان واحد. وحساب التيار: الرقم 8 فيه 7 أجزاء، لو كل واحد 10mA يبقوا 70mA من بورت واحد. تمام، بس لو 4 خانات بالـ multiplexing هتحتاج ترانزستورات على الـ common.</p></details></details>
+
+<h2>المستوى التالت</h2>
+<details class="ex"><summary>5. اختبار الدرايفر على الكمبيوتر</summary>
+<p class="task">اعمل كومبايل لـ hal_gpio.c بـ GCC على الكمبيوتر. محتاج ملف <code>xc.h</code> مزيّف فيه TRISA..LATE و ADCON1 و INTCON2bits كمتغيرات عادية. اكتب main بيختبر: setup بيكتب LAT قبل TRIS (إزاي هتختبر الترتيب؟)، والفحوصات بترجع E_NOT_OK، و PORTE مبيلمسش البتات العالية في TRISE.</p>
+<details><summary>اعرض فكرة الحل</summary>
+<pre><code>/* fake/xc.h */
+extern volatile unsigned char TRISA, TRISB, TRISC, TRISD, TRISE;
+extern volatile unsigned char LATA, LATB, LATC, LATD, LATE;
+extern volatile unsigned char PORTA, PORTB, PORTC, PORTD, PORTE, ADCON1;
+typedef struct { unsigned RBPU:1; } INTCON2bits_t;
+extern INTCON2bits_t INTCON2bits;
+
+/* test.c */
+TRISE = 0xF0;   /* بتات عالية (PSPMODE...) */
+assert(E_OK == gpio_port_setup(PORTE_INDEX, 0xFF, 0x00));
+assert(TRISE == 0xF7);   /* العالية زي ما هي + RE0..RE2 Input */
+assert(E_NOT_OK == gpio_pin_write(PORTE_INDEX, GPIO_PIN5, GPIO_HIGH));</code></pre>
+<p>الترتيب صعب يتختبر بمتغيرات عادية. الحيلة: خلي TRIS و LAT ماكروز بتنادي دوال بتسجّل كل كتابة في array، وبعدين تتأكد إن كتابة LAT جت قبل TRIS. ده اسمه mock، وهو اللي compiler.h محضّرلك له بـ <code>COMPILER_GCC</code>.</p></details></details>
+
+<details class="ex"><summary>6. انقل الدرايفر لشريحة تانية</summary>
+<p class="task">PIC18F45K22 فيها ANSELA..ANSELE بدل ADCON1 PCFG، بت لكل رجل. إيه اللي هيتغير في الريبو؟ اكتب قايمة الملفات والدوال، من غير كود.</p>
+<details><summary>اعرض الحل</summary>
+<p>MCAL_Layer/GPIO بس: <code>gpio_init</code> تصفّر الـ ANSELx، و <code>gpio_analog_apply</code> و <code>gpio_pin_make_digital</code> يبقوا أبسط بكتير (بت لكل رجل، والقيد بتاع العتبة يختفي)، وجدول <code>analog_channel_map</code> يتغير. Config: الفيوزات أساميها مختلفة (FOSC بدل OSC مثلًا)، فـ config_bits.c يتعاد. أما ECU_Layer/LED، و Common، والأبلكيشن والمشاريع: ولا سطر. ده بالظبط المكسب اللي اتكلمنا عنه في درس الطبقات.</p></details></details>
+
+<h2>وبعدين؟</h2>
+<p>الدروس الجاية هتمشي بنفس الطريقة على باقي الدرايفرات اللي مستنية في device_config.h: الزرار كدرايفر رسمي، وبعده الإنتربتات الخارجية، والتايمرز (اللي هتخلّصنا من <code>__delay_ms</code> في المشاريع)، والـ ADC، والـ UART علشان نطبع بدل ما نومّض ليد.</p>

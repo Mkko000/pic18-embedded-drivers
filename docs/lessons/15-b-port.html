@@ -1,0 +1,91 @@
+<p>الدوال بتاعة الرجل الواحدة خلصت. بس مشروع زي الـ LED Chaser بيكتب 8 رجول مرة واحدة. لو عملناها بـ 8 نداءات <code>gpio_pin_write</code>، الليدات مش هتتغير في نفس اللحظة، وفيه 8 فحوصات من غير لازمة. محتاجين دوال للبورت كله. وهنا PORTE هيعمل مشكلة صغيرة لطيفة.</p>
+
+<h2>v1: اكتب البايت وخلاص</h2>
+<pre><code>Std_ReturnType gpio_port_write(port_index_t port, uint8 logic_mask) {
+    Std_ReturnType ret = E_OK;
+    if (!IS_VALID_PORT(port)) {
+        ret = E_NOT_OK;
+    } else {
+        *(lat_registers[port]) = logic_mask;
+    }
+    return ret;
+}</code></pre>
+<p>على PORTC تمام. على PORTE: <code>gpio_port_write(PORTE_INDEX, 0xFF)</code> بتكتب 1 في بتات LATE من 3 لـ 7 اللي مالهاش رجول. الداتاشيت بتقول البتات دي unimplemented، بتتقري 0 والكتابة فيها مالهاش أثر. يعني مفيش ضرر في الكتابة دي بالذات. طب ليه نتعب نفسنا؟</p>
+<p>بص على <code>gpio_port_setup</code> على PORTE. في TRISE، البتات العالية <b>مش فاضية</b>: فيها PSPMODE (بت 4) و IBF و OBF و IBOV، وده تبع Parallel Slave Port. لو كتبت 0xFF في TRISE علشان تخلي الـ 3 رجول Input، فتحت وضع الـ PSP من غير ما تقصد، وPORTD كله بقى بيتصرف بطريقة تانية. ده bug حقيقي هيوقعك ومش هتلاقي سببه في الكود بتاع PORTD أبدًا.</p>
+
+<h2>v2: ماسك للرجول الموجودة</h2>
+<div class="goal"><b>الهدف:</b> عمليات البورت متلمسش غير البتات اللي ليها رجول.</div>
+<pre class="diff"><code>+static const uint8 port_valid_pin_mask[PORT_MAX_NUMBER] = {
++    0xFF,                   /* PORTA */
++    0xFF,                   /* PORTB */
++    0xFF,                   /* PORTC */
++    0xFF,                   /* PORTD */
++    PORTE_VALID_PIN_MASK    /* PORTE: RE0-RE2 = 0x07 */
++};
++
++static inline void gpio_reg_write_masked(volatile uint8 * const reg, port_index_t port, uint8 value) {
++    uint8 valid = port_valid_pin_mask[port];
++    *reg = (uint8)((*reg &amp; (uint8)~valid) | (value &amp; valid));
++}
++
+ Std_ReturnType gpio_port_write(port_index_t port, uint8 logic_mask) {
+     ...
+-        *(lat_registers[port]) = logic_mask;
++        gpio_reg_write_masked(lat_registers[port], port, logic_mask);
+     ...
+ }</code></pre>
+<p>اقرا السطر المهم كده: خد الريجستر، وامسح منه البتات الموجودة بس (<code>&amp; ~valid</code>)، وحط مكانها القيمة الجديدة بعد ما تقصّ منها أي حاجة برّه الماسك (<code>value &amp; valid</code>). على PORTC الماسك 0xFF، فالسطر ده بيساوي كتابة عادية. على PORTE بيحمي البتات العالية.</p>
+<p>ليه helper لوحده؟ لأن 3 دوال محتاجاه (setup و set_direction و write)، ولأن الـ Struct API هيحتاجه برضه. والـ <code>static inline</code> معناها إنه مش ظاهر برّه الملف، والكومبايلر غالبًا هيحطه مكان النداء من غير تكلفة نداء.</p>
+
+<h2>القراية والتوجل</h2>
+<pre><code>*logic = (uint8)(*(port_registers[port]) &amp; port_valid_pin_mask[port]);    /* read */
+*(lat_registers[port]) ^= port_valid_pin_mask[port];                          /* toggle */</code></pre>
+<p>القراية بتصفّر البتات اللي مالهاش رجول، علشان اللي بيقرا PORTE ميلاقيش RE3 (اللي هي MCLR) طالعة 1 ويفتكرها رجل. والتوجل XOR بالماسك نفسه، فبيقلب الموجود بس.</p>
+
+<h2>setup البورت: نفس قاعدة الرجل</h2>
+<pre><code>Std_ReturnType gpio_port_setup(port_index_t port, uint8 direction_mask, uint8 initial_value) {
+    Std_ReturnType ret = E_OK;
+    if (!IS_VALID_PORT(port)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        gpio_reg_write_masked(lat_registers[port],  port, initial_value);   /* latch first */
+        gpio_reg_write_masked(tris_registers[port], port, direction_mask);
+    }
+    return ret;
+}</code></pre>
+<p>اللاتش الأول، الاتجاه بعده. نفس سبب v4 في الدرس اللي فات.</p>
+<h3>الماسكات بأسامي</h3>
+<pre><code>#define GPIO_PORT_ALL_OUTPUT        ((uint8)0x00)
+#define GPIO_PORT_ALL_INPUT         ((uint8)0xFF)
+#define GPIO_PIN0_MASK              ((uint8)0x01)
+...
+gpio_port_setup(PORTD_INDEX, GPIO_PIN0_MASK | GPIO_PIN3_MASK, GPIO_PORT_ALL_LOW);
+/* RD0 و RD3 Input، الباقي Output، الكل LOW */</code></pre>
+<p>الـ <code>0x09</code> و <code>GPIO_PIN0_MASK | GPIO_PIN3_MASK</code> نفس الرقم. بس التانية مش محتاجة تعليق.</p>
+<a data-src="MCAL_Layer/GPIO/hal_gpio.c"></a>
+
+<div class="oops"><b>غلطات مشهورة</b>
+<p>نسيت إن الـ mask في direction معناه 1 = Input. <code>gpio_port_setup(PORTC_INDEX, 0xFF, 0x00)</code> بتخلي البورت كله Input، والليدات مش هتنوّر. استخدم <code>GPIO_PORT_ALL_OUTPUT</code> وارتاح.</p>
+<p>استخدمت <code>gpio_port_write</code> على بورت فيه زراير وليدات مع بعض. الكتابة مش هتأثر على الزراير لأنها Input، بس هتغيّر الـ LAT بتاعهم، ولو حد خلاهم Output بعدين هيطلعوا بالقيمة دي.</p></div>
+
+<div class="quiz"><p class="q"><code>gpio_port_write(PORTE_INDEX, 0xFF)</code>. LATE هيبقى إيه في البتات اللي تحت؟</p>
+<button>0xFF</button><button data-ok>بتات 0..2 بـ 1، والباقي زي ما كان</button><button>هترجع E_NOT_OK</button>
+<p class="why">الماسك 0x07 بيقصّ القيمة ويحمي الباقي.</p></div>
+
+<details class="ex"><summary>تمرين: gpio_port_write_bits</summary>
+<p class="task">اكتب دالة <code>gpio_port_write_bits(port, mask, value)</code> تكتب بس البتات اللي في mask، وتسيب الباقي. مثال: <code>(PORTC, 0x0F, 0x05)</code> تكتب 0101 في النص التحتاني من غير ما تلمس RC4..RC7. الـ LED Chaser كان هيستفيد منها لو فيه حاجة تانية على البورت.</p>
+<details><summary>اعرض الحل</summary>
+<pre><code>Std_ReturnType gpio_port_write_bits(port_index_t port, uint8 mask, uint8 value) {
+    Std_ReturnType ret = E_OK;
+    if (!IS_VALID_PORT(port)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        uint8 m = (uint8)(mask &amp; port_valid_pin_mask[port]);
+        volatile uint8 * const lat = lat_registers[port];
+        *lat = (uint8)((*lat &amp; (uint8)~m) | (value &amp; m));
+    }
+    return ret;
+}</code></pre>
+<p>نفس فكرة <code>gpio_reg_write_masked</code> بالظبط، بس الماسك جاي من برّه ومقصوص بماسك البورت.</p></details></details>

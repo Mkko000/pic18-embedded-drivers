@@ -77,6 +77,7 @@ gpio_pin_write_logic(&amp;buzzer, GPIO_HIGH);</code></pre>
 <h2>Pull-ups على PORTB</h2>
 <p>الزرار محتاج مقاومة تشد الرجل لـ 5V وهو مش مضغوط، وإلا الرجل هتبقى سايبة وتقرا أي حاجة. PORTB فيه مقاومات جوّه الشريحة بتعمل كده، وبتتفتح كلها مع بعض بـ <code>gpio_portb_pullup_enable()</code>. فالزرار بيتوصل بين الرجل والأرضي على طول. مضغوط = 0، سايب = 1. مشروع العدّاد بيستخدم ده.</p>
 
+<p>عايز تشوف الدرايفر ده بيتكتب من الصفر، نسخة ورا نسخة؟ ده الجزء التالت: <a href="#/b-direct">الـ Direct API نسخة ورا نسخة</a>، و <a href="#/b-struct">الـ Struct API والمفاتيح</a>، و <a href="#/b-analog">Analog ولا Digital</a>.</p>
 <div class="quiz"><p class="q">ليه <code>gpio_pin_setup</code> بتكتب في LAT قبل TRIS؟</p>
 <button>علشان أسرع</button><button data-ok>علشان الرجل تطلع Output وهي شايلة القيمة الصح من أول لحظة</button><button>مش فارقة</button>
 <p class="why">لو TRIS الأول، الرجل هتطلع للحظة بالقيمة القديمة اللي في الـ Latch، وده glitch ممكن يحرك ريلاي أو موتور.</p></div>

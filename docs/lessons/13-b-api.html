@@ -1,0 +1,96 @@
+<p>أكبر غلطة في كتابة الدرايفرات إنك تفتح الـ .c وتبدأ تكتب. الـ API (أسامي الدوال، والباراميترز، وبترجّع إيه) هو العقد بينك وبين كل اللي هيستخدم الدرايفر، وإنت منهم بعد شهر. لو العقد وحش، الكود الحلو جوّاه مش هينقذه. فالدرس ده كله في ملف الـ .h، ومفيش ولا سطر تنفيذ.</p>
+
+<h2>الخطوة 1: نكتب الاستخدام الأول</h2>
+<div class="goal"><b>الهدف:</b> نعرف عايزين نكتب إيه في الأبلكيشن، قبل ما نعرف الدرايفر هيعمله إزاي.</div>
+<p>دي حيلة بسيطة جدًا وبتوفّر كتير: اكتب الكود اللي نفسك تكتبه، كأن الدرايفر موجود.</p>
+<pre><code>gpio_pin_setup(PORTC_INDEX, GPIO_PIN0, GPIO_DIRECTION_OUTPUT, GPIO_LOW);
+gpio_pin_write(PORTC_INDEX, GPIO_PIN0, GPIO_HIGH);
+gpio_pin_toggle(PORTC_INDEX, GPIO_PIN0);
+
+logic_t btn;
+if (E_OK == gpio_pin_read(PORTB_INDEX, GPIO_PIN0, &amp;btn) &amp;&amp; GPIO_LOW == btn) { ... }</code></pre>
+<p>من الأربع سطور دول طلع كل حاجة: محتاجين أنواع للبورت والرجل والاتجاه والقيمة. القراية لازم ترجّع حاجتين (نجحت؟ والقيمة)، فالقيمة هتطلع في مؤشر والنتيجة في الـ return. والأسامي كلها بتبدأ بـ <code>gpio_</code> علشان C مفيهاش namespaces، والبادئة هي اللي بتمنع إن <code>pin_write</code> بتاعتك تتخانق مع واحدة في مكتبة تانية.</p>
+
+<h2>الخطوة 2: الأنواع</h2>
+<pre><code>typedef enum { GPIO_LOW = 0, GPIO_HIGH = 1 } logic_t;
+typedef enum { GPIO_DIRECTION_OUTPUT = 0, GPIO_DIRECTION_INPUT = 1 } direction_t;
+typedef enum { GPIO_PIN0 = 0, GPIO_PIN1, GPIO_PIN2, GPIO_PIN3,
+               GPIO_PIN4, GPIO_PIN5, GPIO_PIN6, GPIO_PIN7 } pin_index_t;
+typedef enum { PORTA_INDEX = 0, PORTB_INDEX, PORTC_INDEX, PORTD_INDEX, PORTE_INDEX } port_index_t;</code></pre>
+<p><b>ليه enum مش #define؟</b> الـ debugger بيوريك اسم القيمة بدل الرقم. والأهم إن نوع الباراميتر بيوصف معناه: <code>direction_t direction</code> بتقولك إيه اللي المفروض يتبعت. الـ C مش هيمنعك تبعت 7 (الـ enums في C ضعيفة)، بس أدوات الفحص والمراجع هيشوفوها على طول.</p>
+<p><b>ليه القيم دي بالظبط؟</b> OUTPUT = 0 لأن بت الـ TRIS بيبقى 0 للـ output. يعني القيمة ممكن تتكتب في الريجستر من غير if. والبورتات من 0 لـ 4 علشان تبقى index في جدول.</p>
+
+<h2>الخطوة 3: النتيجة</h2>
+<p>كل دالة بترجّع <code>Std_ReturnType</code>. حتى اللي "مستحيل تفشل" زي <code>gpio_portb_pullup_enable</code>. ليه؟ علشان الشكل يبقى واحد، ولو بكرة نقلناها لشريحة فيها شروط، الكود اللي بينادي مش هيتغير.</p>
+<aside class="tip"><b>خلي بالك</b>فيه مدرسة تانية بتقول الدرايفر يرجّع void ويعمل assert لو فيه غلط، علشان السرعة. ده منطقي في كود الإنتربت. إحنا اخترنا إن الفحص يفضل موجود والنتيجة ترجع، لأن 4 مقارنات على شريحة 4MHz حوالي 4 ميكروثانية، وده رخيص جدًا قصاد ساعة ديباج.</aside>
+
+<h2>الخطوة 4: ليه اتنين API؟</h2>
+<p>الـ Direct اللي فوق حلو للاستخدام السريع. بس تخيل مشروع فيه 15 رجل لكل واحدة إعداد ثابت. هتكتب 15 سطر setup، وكل مرة تكتب فيها لرجل هتكتب البورت والرجل تاني. لو رجل اتنقلت، هتدوّر عليها في كل حتة. الحل: كل رجل توصفها مرة في struct.</p>
+<pre><code>typedef struct {
+    uint8 port      : 3;
+    uint8 pin       : 3;
+    uint8 direction : 1;
+    uint8 logic     : 1;
+} pin_config_t;
+
+Std_ReturnType gpio_pin_initialize(const pin_config_t *_pin_config);
+Std_ReturnType gpio_pin_write_logic(const pin_config_t *_pin_config, logic_t logic);</code></pre>
+<p><b>ليه <code>const pin_config_t *</code>؟</b> مؤشر علشان بنبعت عنوان (بايتين) بدل ما ننسخ الـ struct. والـ <code>const</code> وعد إن الدالة مش هتغيّر فيه، وده بيخليك تعرّف الإعدادات نفسها <code>const</code> فتتحط في الـ Flash.</p>
+<p><b>ليه bitfields؟</b> 3 بت للبورت (0–7، محتاجين 0–4) و 3 للرجل و 1 و 1. المجموع بايت. من غيرها 4 بايت. مع 15 رجل الفرق 45 بايت RAM، وده 1% من الـ RAM كلها. مش كتير لوحده، بس دي عادة.</p>
+<p>الاسم مختلف (<code>_logic</code> في الآخر) علشان الاتنين يعيشوا مع بعض من غير تعارض.</p>
+
+<h2>الخطوة 5: مفاتيح وقت الكومبايل</h2>
+<div class="goal"><b>الهدف:</b> كل API يتفتح ويتقفل لوحده، ومفيش واحد يعتمد على التاني.</div>
+<pre><code>/* device_config.h */
+#define GPIO_MODULE_ENABLE              CONFIG_ENABLE
+#define GPIO_STRUCT_API_ENABLE          CONFIG_ENABLE
+#define GPIO_DIRECT_API_ENABLE          CONFIG_ENABLE
+#define GPIO_PORT_PIN_CONFIGURATIONS    CONFIG_ENABLE
+#define GPIO_PORT_CONFIGURATIONS        CONFIG_ENABLE
+
+/* hal_gpio.h */
+#if GPIO_MODULE_ENABLE == CONFIG_ENABLE
+    Std_ReturnType gpio_init(void);
+  #if GPIO_DIRECT_API_ENABLE == CONFIG_ENABLE
+    Std_ReturnType gpio_pin_setup(...);
+    ...
+  #endif
+  #if GPIO_STRUCT_API_ENABLE == CONFIG_ENABLE
+    #if GPIO_PORT_PIN_CONFIGURATIONS == CONFIG_ENABLE
+      Std_ReturnType gpio_pin_initialize(...);
+    #endif
+  #endif
+#endif</code></pre>
+<p>الجملة المهمة: "مفيش واحد يعتمد على التاني". كان سهل نكتب الـ Struct API إنه يفك الـ struct وينادي الـ Direct. بس ساعتها لو حد قفل الـ Direct علشان يوفّر Flash، الـ Struct هيقع. فالاتنين بيستخدموا helpers داخلية مشتركة (static) ومحدش فيهم بينادي التاني. هنشوف ده في الكود.</p>
+<a data-src="MCAL_Layer/GPIO/hal_gpio.h"></a>
+
+<h2>الخطوة 6: ماكروز الفحص في الـ .h</h2>
+<pre><code>#define PORT_PIN_MAX_NUMBER         8
+#define PORT_MAX_NUMBER             5
+#define PORTE_PIN_MAX_NUMBER        3
+#define IS_VALID_PORT(port)         (((uint8)(port)) &lt; PORT_MAX_NUMBER)
+#define IS_VALID_PIN(pin)           (((uint8)(pin)) &lt; PORT_PIN_MAX_NUMBER)
+#define IS_VALID_DIRECTION(dir)     (((uint8)(dir)) &lt;= GPIO_DIRECTION_INPUT)
+#define IS_VALID_LOGIC(logic)       (((uint8)(logic)) &lt;= GPIO_HIGH)</code></pre>
+<p>ليه الـ cast لـ uint8؟ لأن لو حد بعت قيمة سالبة (enum في C ممكن يبقى signed)، المقارنة <code>&lt; 5</code> هتعدّي. بعد الـ cast، الـ −1 بقت 255 والفحص يمسكها. ومفيش فحص <code>&gt;= 0</code> خالص، الـ unsigned بيغني عنه.</p>
+
+<div class="quiz"><p class="q">ليه الـ Struct API مبينادي الـ Direct API جوّاه؟</p>
+<button>علشان أسرع</button><button data-ok>علشان تقدر تقفل الـ Direct من الكونفيج والـ Struct يفضل شغال</button><button>الـ C مبتسمحش</button>
+<p class="why">الاستقلال بين الاتنين هو اللي بيخلي المفاتيح حقيقية، مش ديكور.</p></div>
+
+<details class="ex"><summary>تمرين: صمم API لزرار</summary>
+<p class="task">قبل ما تبص في أي حاجة: اكتب الـ .h بتاع درايفر زرار (ECU). محتاج تعرف: الزرار على أنهي رجل، متوصل pull-up ولا pull-down، وتقرا حالته (مضغوط ولا لأ). اكتب الأنواع والدوال بس.</p>
+<details><summary>اعرض حل مقترح</summary>
+<pre><code>typedef enum { BUTTON_RELEASED = 0, BUTTON_PRESSED = 1 } button_state_t;
+typedef enum { BUTTON_ACTIVE_LOW = 0, BUTTON_ACTIVE_HIGH = 1 } button_active_t;
+
+typedef struct {
+    uint8 port   : 3;
+    uint8 pin    : 3;
+    uint8 active : 1;
+    uint8 reserved : 1;
+} button_config_t;
+
+Std_ReturnType button_initialize(const button_config_t *btn);
+Std_ReturnType button_read_state(const button_config_t *btn, button_state_t *state);</code></pre>
+<p>لاحظ إن الأبلكيشن مش هيشوف LOW و HIGH خالص، هيشوف PRESSED و RELEASED. ده نفس اللي عملناه في الليد. والـ debounce؟ محتاج حالة بتتحفظ بين النداءات، فهيحتاج struct تاني مش const. فكّر فيها، هنرجعلها في المشروع.</p></details></details>

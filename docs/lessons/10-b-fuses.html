@@ -1,0 +1,88 @@
+<p>كتبت الكود صح، والبرنامج اتحرق، والليد مش بتومض. أول حاجة تبص عليها مش الكود، الفيوزات. الـ Configuration Bits هي الإعدادات اللي الشريحة بتقراها قبل ما تنفذ أول تعليمة، وأهمها: الساعة جاية منين.</p>
+
+<h2>الخطوة 1: نطلّع الإعدادات من MPLAB</h2>
+<div class="goal"><b>الهدف:</b> ملف فيه كل الفيوزات بقيم إحنا اخترناها، مش الافتراضي.</div>
+<p>Window ← Target Memory Views ← Configuration Bits. هيفتحلك جدول بكل إعداد وقيمته. غيّر اللي محتاجه، ودوس Generate Source Code to Output، وانسخ الناتج في ملف جديد <code>Config/config_bits.c</code>.</p>
+<pre><code>#pragma config OSC = HS
+#pragma config WDT = OFF
+#pragma config LVP = OFF
+#pragma config PBADEN = OFF
+#pragma config MCLRE = ON
+#pragma config BOREN = OFF
+#pragma config XINST = OFF</code></pre>
+<p>ليه في ملف لوحده؟ لأن الـ XC8 بيقبل <code>#pragma config</code> في ملف C واحد بس في البروجكت. لو حطيتهم في application.c، وكل مشروع من المشاريع الأربعة عنده main.c خاص بيه، هتنسخهم أربع مرات، ولو غيّرت حاجة هتنسى نسخة. ملف واحد بيتضاف لأي بروجكت مرة واحدة.</p>
+
+<h3>ليه كل واحد فيهم كده</h3>
+<table>
+<tr><th>الإعداد</th><th>القيمة</th><th>ليه</th></tr>
+<tr><td>OSC</td><td>HS</td><td>كريستالة 4MHz. الـ XT برضه ينفع لـ 4MHz بالظبط، بس HS بيشتغل من 4 لـ 25 فلو غيّرت الكريستالة متحتاجش تغيّره</td></tr>
+<tr><td>WDT</td><td>OFF</td><td>الـ Watchdog هيعمل ريست كل حوالي دقيقتين لو الكود مقالوش حاجة. واحنا لسه بنتعلم</td></tr>
+<tr><td>LVP</td><td>OFF</td><td>لو ON، RB5 بتبقى رجل برمجة ومش هتعرف تستخدمها</td></tr>
+<tr><td>PBADEN</td><td>OFF</td><td>RB0..RB4 تبدأ Digital بعد الريست</td></tr>
+<tr><td>MCLRE</td><td>ON</td><td>زرار ريست حقيقي على رجل MCLR</td></tr>
+<tr><td>XINST</td><td>OFF</td><td>الـ Extended Instruction Set. الـ XC8 مش بيدعمه، ولو اتساب ON الكود هيتصرف غريب جدًا</td></tr>
+</table>
+
+<h2>الخطوة 2: الإعدادات تيجي من مكان واحد</h2>
+<div class="goal"><b>الهدف:</b> نغيّر الكريستالة في سطر واحد، والفيوز يتغير لوحده.</div>
+<p>النسخة الأولى فيها مشكلة خفية: <code>_XTAL_FREQ</code> في ملف، و <code>OSC = HS</code> في ملف تاني. حد هيغيّر الكريستالة لـ 8MHz بالـ PLL ويغيّر واحد وينسى التاني. نعمل ملف <code>Config/device_config.h</code> وكل القرارات تبقى فيه:</p>
+<pre><code>#define _XTAL_FREQ          4000000UL
+
+#define OSC_MODE_XT         1
+#define OSC_MODE_HS         2
+#define OSC_MODE_HSPLL      3
+#define OSC_MODE_INTIO67    4
+#define OSC_MODE            OSC_MODE_HS</code></pre>
+<p>وفي config_bits.c:</p>
+<pre class="diff"><code>+#include "device_config.h"
+-#pragma config OSC = HS
++#if   OSC_MODE == OSC_MODE_XT
++#pragma config OSC = XT
++#elif OSC_MODE == OSC_MODE_HS
++#pragma config OSC = HS
++#elif OSC_MODE == OSC_MODE_HSPLL
++#pragma config OSC = HSPLL
++#elif OSC_MODE == OSC_MODE_INTIO67
++#pragma config OSC = INTIO67
++#endif</code></pre>
+
+<h2>الخطوة 3: الملف يرفض الغلط</h2>
+<div class="goal"><b>الهدف:</b> لو الإعدادات مش منطقية مع بعض، الـ build يقف ويقول ليه.</div>
+<p>الـ HSPLL بيضرب الكريستالة في 4. يعني كريستالة 10MHz تدّيك 40MHz. لو حد كتب HSPLL و <code>_XTAL_FREQ = 4000000</code>، الـ delays هتبقى أطول أربع مرات. نخلي الكومبايلر يمسكها:</p>
+<pre class="diff"><code>+#if !defined(OSC_MODE)
++    #error "OSC_MODE is not defined in device_config.h"
++#elif OSC_MODE == OSC_MODE_XT
++    #if (_XTAL_FREQ &gt; 4000000UL)
++        #error "XT mode supports crystals up to 4 MHz - use OSC_MODE_HS"
++    #endif
++#elif OSC_MODE == OSC_MODE_HS
++    #if (_XTAL_FREQ &lt; 4000000UL) || (_XTAL_FREQ &gt; 25000000UL)
++        #error "HS mode needs a 4 - 25 MHz crystal (_XTAL_FREQ)"
++    #endif
++#elif OSC_MODE == OSC_MODE_HSPLL
++    #if (_XTAL_FREQ &lt; 16000000UL) || (_XTAL_FREQ &gt; 40000000UL)
++        #error "HSPLL: _XTAL_FREQ = 4 x crystal (4 - 10 MHz) -&gt; must be 16 - 40 MHz"
++    #endif
++#endif</code></pre>
+<p>ده نفس اللي في الريبو. والـ INTIO67 ليه فحص لوحده بيتأكد إن السرعة واحدة من اللي الأوسيليتور الداخلي يقدر يطلّعها (31k، 125k، … 8M).</p>
+<a data-src="Config/config_bits.c"></a> <a data-src="Config/device_config.h"></a>
+<aside class="tip"><b>خلي بالك</b>الـ <code>#error</code> بيشتغل وقت الكومبايل، مش وقت التشغيل. يعني مبياخدش ولا بايت من الـ Flash، ومبيبطّأش حاجة. أي حاجة تقدر تمسكها بـ <code>#error</code>، امسكها بيه بدل ما تكتشفها على البورد.</aside>
+
+<div class="oops"><b>غلطات مشهورة</b>
+<p>نسيت تضيف config_bits.c للبروجكت: الشريحة هتشتغل بالفيوزات الافتراضية (OSC = RC غالبًا)، يعني الساعة جاية من مكان مش متوصل، ومش هتشتغل أو هتشتغل بسرعة عشوائية.</p>
+<p>ضفته مرتين (مرة من الريبو ومرة نسخة): خطأ بإن الإعدادات متعرّفة أكتر من مرة.</p>
+<p>الـ MCLRE ON ومفيش مقاومة على MCLR: الشريحة واقفة في ريست دايمًا. على البورد ده شكله "مفيش أي حاجة بتحصل".</p></div>
+
+<div class="quiz"><p class="q">كريستالة 8MHz، و OSC_MODE = HSPLL. تكتب <code>_XTAL_FREQ</code> كام؟</p>
+<button>8000000UL</button><button data-ok>32000000UL</button><button>2000000UL</button>
+<p class="why">الـ PLL بيضرب في 4، والـ delays محتاجة السرعة اللي المعالج شغال بيها فعلًا: 32MHz.</p></div>
+
+<details class="ex"><summary>تمرين: نشغّل من غير كريستالة</summary>
+<p class="task">معاكش كريستالة. عايز تشتغل على الأوسيليتور الداخلي 8MHz. غيّر إيه في device_config.h؟ وإيه اللي لازم يتعمل في الكود كمان؟</p>
+<details><summary>اعرض الحل</summary>
+<pre><code>#define _XTAL_FREQ  8000000UL
+#define OSC_MODE    OSC_MODE_INTIO67
+
+/* وفي أول main: اختار 8MHz من الأوسيليتور الداخلي */
+OSCCONbits.IRCF = 0x7;    /* 111 = 8 MHz */</code></pre>
+<p>الفيوز بيقول "الساعة جاية من جوّه"، بس سرعتها نفسها بتتحدد من ريجستر OSCCON وقت التشغيل، والافتراضي بعد الريست 1MHz. لو نسيت السطر ده، كل الـ delays هتبقى أبطأ 8 مرات. وبالمرة RA6 و RA7 بقوا فاضيين ليك تستخدمهم I/O.</p></details></details>

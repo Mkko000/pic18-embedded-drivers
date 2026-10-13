@@ -1,0 +1,101 @@
+<p>ده أصعب جزء في الدرايفر، وأغلب الناس بتعدّيه بسطر واحد: <code>ADCON1 = 0x0F;</code>. السطر ده كفاية لحد يوم ما تحتاج حساس على RA0 وزرار على RB0 في نفس المشروع. الدرس ده عن اليوم ده.</p>
+
+<h2>المشكلة بالأرقام</h2>
+<p>من درس الداتاشيت: الـ PCFG أربع بتات، والقيمة بتقول "من AN0 لحد ANn يبقوا Analog". مفيش اختيار لكل قناة لوحدها.</p>
+<table>
+<tr><th>PCFG</th><th>Analog</th></tr>
+<tr><td>0x0F</td><td>ولا واحدة</td></tr>
+<tr><td>0x0E</td><td>AN0</td></tr>
+<tr><td>0x0D</td><td>AN0..AN1</td></tr>
+<tr><td>…</td><td>…</td></tr>
+<tr><td>0x0E − n</td><td>AN0..ANn</td></tr>
+<tr><td>0x02 (وأقل)</td><td>AN0..AN12 كلهم</td></tr>
+</table>
+<p>يعني لو عايز RB0 (اللي هي AN12) Analog، كل القنوات من AN0 لـ AN12 هيبقوا Analog. RA0 و RA1 و RB1 وكله. أي زرار عليهم هيتقري 0.</p>
+
+<h2>v1: gpio_init وبس</h2>
+<pre><code>Std_ReturnType gpio_init(void) {
+    ADCON1 = 0x0F;
+    return E_OK;
+}</code></pre>
+<p>مشكلتين. الأولى إن بتات 4 و 5 في ADCON1 (VCFG) بتحدد الـ reference voltage للـ ADC، والسطر ده صفّرهم. لو درايفر الـ ADC كان ظبطهم قبلها، اتمسحوا. الحل: نكتب في الـ PCFG بس.</p>
+<pre class="diff"><code>-    ADCON1 = 0x0F;
++    ADCON1 = (uint8)((ADCON1 &amp; (uint8)~GPIO_PCFG_MASK) | GPIO_PCFG_ALL_DIGITAL);</code></pre>
+<p>التانية إن حد ممكن ينسى ينادي <code>gpio_init</code>، أو يناديها والـ ADC بعدها يرجّع رجول Analog. فالـ setup لازم تتأكد بنفسها.</p>
+
+<h2>v2: الرجل تبقى Digital لوحدها</h2>
+<div class="goal"><b>الهدف:</b> <code>gpio_pin_setup</code> على رجل Analog تحوّلها Digital، من غير ما تبوّظ قنوات الـ ADC المطلوبة.</div>
+<p>الفكرة: الدرايفر يفتكر أنهي قنوات حد طلبها Analog بقصد. متغير 16 بت، كل بت قناة:</p>
+<pre><code>static uint16 analog_request_mask = 0;     /* bit n = ANn مطلوبة Analog */</code></pre>
+<p>ولما حاجة تتغير، نحسب PCFG من أعلى قناة مطلوبة:</p>
+<pre><code>static void gpio_analog_apply(void) {
+    uint8 pcfg    = GPIO_PCFG_ALL_DIGITAL;
+    sint8 channel;
+
+    for (channel = GPIO_MAX_ANALOG_CHANNEL; channel &gt;= 0; channel--) {
+        if (analog_request_mask &amp; (uint16)BIT_VALUE(channel)) {
+            pcfg = (uint8)(0x0E - (uint8)channel);
+            break;
+        }
+    }
+    ADCON1 = (uint8)((ADCON1 &amp; (uint8)~GPIO_PCFG_MASK) | pcfg);
+}</code></pre>
+<p>ليه <code>sint8</code> للعداد؟ لأن اللوب نازل لحد 0، وبعد 0 لازم يبقى −1 علشان يقف. لو كان <code>uint8</code>، بعد 0 هيبقى 255، والشرط <code>&gt;= 0</code> دايمًا صح، واللوب مش هيخلص. نفس غلطة الـ 256 في مشروع العداد بالمقلوب.</p>
+<p>وجدول بيربط كل رجل بقناتها (شفناه في درس الداتاشيت). <code>NA</code> للرجول اللي مالهاش.</p>
+
+<h2>الحالة اللي متتحلش</h2>
+<p>إنت طلبت AN4 (RA5) Analog لحساس، وبعدين ندهت <code>gpio_pin_set_digital</code> على RA0 (AN0). الدرايفر يشيل AN0 من المطلوب، ويحسب، فيلاقي AN4 لسه مطلوبة، يعني PCFG هيفضل يخلي AN0..AN4 Analog. RA0 هتفضل Analog غصب عن الكل.</p>
+<p>الدرايفر مش هيكدب عليك. بيرجّع <code>E_NOT_OK</code>:</p>
+<pre><code>static Std_ReturnType gpio_pin_make_digital(port_index_t port, pin_index_t pin) {
+    Std_ReturnType ret     = E_OK;
+    uint8          channel = analog_channel_map[port][pin];
+
+    if (GPIO_NO_ANALOG_CHANNEL != channel) {
+        analog_request_mask &amp;= (uint16)~BIT_VALUE(channel);
+        gpio_analog_apply();
+
+        /* Threshold limitation: still analog if a higher channel is analog */
+        if ((sint8)channel &lt;= gpio_analog_highest_hw_channel()) {
+            ret = E_NOT_OK;
+        }
+    }
+    return ret;
+}</code></pre>
+<p>وده درس في التصميم أهم من الكود: لما الهاردوير مش بيسمح بحاجة، الدرايفر يقول. والحل الحقيقي في التوصيل: الحساسات على القنوات الصغيرة (AN0، AN1)، والزراير على الرجول اللي مالهاش Analog أصلًا (PORTC، PORTD، RB5..RB7).</p>
+
+<h2>gpio_pin_auto_digital: من غير ما يزعّل الـ ADC</h2>
+<pre><code>static inline void gpio_pin_auto_digital(port_index_t port, pin_index_t pin) {
+#if GPIO_ANALOG_CONFIG_ENABLE == CONFIG_ENABLE
+    uint8 channel = analog_channel_map[port][pin];
+    if (GPIO_NO_ANALOG_CHANNEL != channel) {
+    #if ADC_MODULE_ENABLE == CONFIG_ENABLE
+        if (!(analog_request_mask &amp; (uint16)BIT_VALUE(channel)))
+    #endif
+        {
+            (void)gpio_pin_make_digital(port, pin);
+        }
+    }
+#else
+    UNUSED(port);
+    UNUSED(pin);
+#endif
+}</code></pre>
+<p>اقراها كده: لو الرجل ليها قناة، والـ ADC مفتوح والقناة دي مطلوبة، سيبها. غير كده خليها Digital. الـ <code>(void)</code> قدام النداء معناها "شايف النتيجة ومش محتاجها هنا"، لأن setup هتكمّل في الحالتين. والـ <code>UNUSED</code> في حالة إن الميزة مقفولة علشان الكومبايلر ميشتكيش من باراميترز مش مستخدمة.</p>
+<a data-src="MCAL_Layer/GPIO/hal_gpio.c"></a>
+
+<div class="oops"><b>غلطات مشهورة</b>
+<p>كتبت <code>ADCON1 = 0x0F</code> في الأبلكيشن بعد ما الـ ADC اتظبط: الـ VCFG اتمسح والقراية بقت غلط بفرق صغير ومحيّر.</p>
+<p>زرار على RB0 والـ PBADEN = ON والـ gpio_init مش متنادية: الزرار دايمًا 0.</p>
+<p>حساس على AN12 (RB0): كده كل AN0..AN12 بقوا Analog. حط الحساس على AN0.</p></div>
+
+<div class="quiz"><p class="q">طلبت AN2 Analog. إيه قيمة PCFG؟</p>
+<button>0x02</button><button data-ok>0x0C</button><button>0x0D</button>
+<p class="why">0x0E − 2 = 0x0C، يعني AN0..AN2 Analog.</p></div>
+<div class="quiz"><p class="q">ليه عداد اللوب في <code>gpio_analog_apply</code> من نوع sint8؟</p>
+<button>علشان أسرع</button><button data-ok>علشان يوصل −1 ويقف؛ الـ uint8 بعد 0 بيبقى 255 واللوب مبيخلصش</button><button>علشان القنوات سالبة</button>
+<p class="why">لوب نازل بشرط <code>&gt;= 0</code> مع unsigned لوب لا نهائي.</p></div>
+
+<details class="ex"><summary>تمرين: خطّط البورد</summary>
+<p class="task">مشروع فيه: حساس حرارة LM35، و potentiometer، و 4 زراير، و 8 ليدات. وزّعهم على الرجول بحيث مفيش أي تعارض Analog/Digital.</p>
+<details><summary>اعرض حل مقترح</summary>
+<p>LM35 على RA0 (AN0)، والـ pot على RA1 (AN1). كده PCFG = 0x0D، وبس AN0 و AN1 Analog، وكل القنوات اللي فوقهم Digital. الزراير على RB4..RB7 مع الـ pull-ups الداخلية: RB4 ليها قناة (AN11) بس هي فوق AN1 فهتفضل Digital، والأربعة دول كمان ليهم interrupt-on-change هتحتاجه بعدين. الليدات على PORTD كله، وسيب PORTC للـ UART و I2C قدّام.</p></details></details>

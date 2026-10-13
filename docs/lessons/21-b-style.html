@@ -1,0 +1,60 @@
+<p>الكود اللي بيشتغل نص الطريق. التاني إن حد غيرك (أو إنت بعد 6 شهور) يقراه ويعدّل فيه من غير ما يخاف. الدرس ده عن القواعد اللي الريبو ماشي عليها، وليه.</p>
+
+<h2>الأسامي</h2>
+<table>
+<tr><th>الحاجة</th><th>الشكل</th><th>مثال</th></tr>
+<tr><td>دالة عامة</td><td><code>module_verb_noun</code></td><td><code>gpio_pin_write</code>، <code>led_get_state</code></td></tr>
+<tr><td>نوع</td><td>بينتهي بـ <code>_t</code></td><td><code>logic_t</code>، <code>led_config_t</code></td></tr>
+<tr><td>قيم enum وماكروز</td><td>كابيتال وبادئة الموديول</td><td><code>GPIO_HIGH</code>، <code>LED_ACTIVE_LOW_MODE</code></td></tr>
+<tr><td>باراميتر struct</td><td>بادئة <code>_</code></td><td><code>_pin_config</code></td></tr>
+<tr><td>ملف MCAL</td><td><code>hal_</code></td><td><code>hal_gpio.c</code></td></tr>
+<tr><td>ملف ECU</td><td><code>ecu_</code></td><td><code>ecu_led.c</code></td></tr>
+</table>
+<p>البادئة مش زينة. لما تشوف <code>led_on</code> في main، عارف على طول هي فين. ولما تعمل بحث عن <code>gpio_</code> بتلاقي كل استخدامات الدرايفر.</p>
+<aside class="tip"><b>خلي بالك</b>الأسامي اللي بتبدأ بـ <code>_</code> وبعدها حرف كابيتال، أو <code>__</code>، محجوزة للكومبايلر في C. <code>_pin_config</code> (حرف صغير، وجوّه دالة) مسموح، بس متعملش متغير global اسمه <code>_Config</code>.</aside>
+
+<h2>قواعد في الكود نفسه</h2>
+<p><b>الثابت على الشمال:</b> <code>if (NULL == led)</code>. لو نسيت = واحدة، خطأ كومبايل بدل bug.</p>
+<p><b>return واحد:</b> متغير <code>ret</code> ونقطة خروج واحدة. اتكلمنا عنها.</p>
+<p><b>أقواس دايمًا:</b> حتى لو الـ if سطر واحد. bug مشهور اسمه "goto fail" في مكتبة أمان كبيرة كان سببه سطر من غير أقواس.</p>
+<p><b>casts صريحة:</b> <code>(uint8)</code> و <code>(port_index_t)</code>. بتقول للي بيقرا "أنا عارف إن الأنواع مختلفة ودي مقصودة".</p>
+<p><b><code>(void)</code> للنتايج المتجاهلة:</b> علشان النسيان والقصد يبانوا مختلفين.</p>
+<p><b>مفيش أرقام سحرية:</b> <code>GPIO_PCFG_ALL_DIGITAL</code> مش <code>0x0F</code>. الريبو فيه commit كامل اسمه "add named port/pin mask constants and use them instead of magic numbers".</p>
+
+<h2>Doxygen</h2>
+<p>التعليقات اللي بتبدأ بـ <code>/**</code> مش للزينة. أداة اسمها Doxygen بتقراها وتطلّع منها موقع توثيق كامل. والـ MPLAB X نفسه بيوريك الـ @brief لما تقف على اسم الدالة.</p>
+<pre><code>/**
+ * @brief   Setup a pin completely (digital mode + direction + initial logic).
+ * @param   port       Port index (@ref port_index_t)
+ * @param   pin        Pin index  (@ref pin_index_t)
+ * @param   direction  GPIO_DIRECTION_OUTPUT or GPIO_DIRECTION_INPUT
+ * @param   logic      Initial level, written to LAT before TRIS
+ * @return  E_OK on success, E_NOT_OK on an invalid argument
+ */
+Std_ReturnType gpio_pin_setup(port_index_t port, pin_index_t pin,
+                              direction_t direction, logic_t logic);</code></pre>
+<p>اكتب الـ <b>ليه</b> مش الـ <b>إيه</b>. التعليق <code>/* set bit */</code> فوق <code>SET_BIT</code> ملوش لازمة. التعليق <code>/* latch first: glitch-free output */</code> بيمنع حد ييجي بعدك "ينضّف" الترتيب.</p>
+<p>وفوق كل ملف header فيه <code>@file</code> و <code>@author</code> و <code>@brief</code> وحقوق الملكية. اللي في الريبو: <code>@author Mohammed El Sisi</code> و MIT License.</p>
+<h3>تطلّع التوثيق</h3>
+<pre><code>doxygen -g          # يعمل ملف Doxyfile
+# عدّل فيه: INPUT = . ، RECURSIVE = YES ، EXTRACT_STATIC = YES
+doxygen             # يطلع فولدر html/</code></pre>
+
+<h2>ترتيب الملف</h2>
+<p>كل الملفات في الريبو ماشية على نفس الأقسام، بعناوين واضحة: Includes، وبعدين Macro Declarations، وبعدين Data Types، وبعدين Function Declarations. في الـ .c: الجداول الداخلية، الـ helpers الـ static، وبعدين كل API في قسم. لما الملفات كلها نفس الشكل، إيدك بتعرف تروح فين قبل عينك.</p>
+
+<div class="quiz"><p class="q">أنهي تعليق مفيد أكتر فوق <code>CLEAR_BIT(*(tris_registers[port]), pin);</code> في setup؟</p>
+<button><code>/* clear bit in TRIS */</code></button><button data-ok><code>/* direction last: LAT already holds the initial level */</code></button><button>من غير تعليق</button>
+<p class="why">الأول بيكرر الكود. التاني بيشرح قرار ممكن حد يغيّره من غير ما يفهمه.</p></div>
+
+<details class="ex"><summary>تمرين: وثّق دالتك</summary>
+<p class="task">اكتب تعليق Doxygen كامل لـ <code>led_blink_n</code> اللي كتبتها في درس الليد.</p>
+<details><summary>اعرض الحل</summary>
+<pre><code>/**
+ * @brief   Blink an LED a number of times, then restore its previous state.
+ * @details Blocking: 100 ms ON + 100 ms OFF per blink. Not for ISR use.
+ * @param   led    LED configuration (must not be NULL)
+ * @param   times  Number of blinks (0 = only reads/restores state)
+ * @return  E_OK on success, E_NOT_OK on NULL or a GPIO error
+ */</code></pre>
+<p>الـ @details هنا أهم سطر: "Blocking" و "Not for ISR" بيمنعوا حد يستخدمها غلط.</p></details></details>

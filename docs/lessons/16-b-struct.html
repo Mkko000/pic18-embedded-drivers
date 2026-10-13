@@ -1,0 +1,101 @@
+<p>الـ Direct API بقى كامل. دلوقتي نضيف الـ Struct API فوق نفس الأساس، ونتأكد إن كل واحد يقدر يعيش لوحده. ده الدرس اللي بيفرّق بين درايفر "شغال" ودرايفر ينفع يتاخد في مشروع تاني.</p>
+
+<h2>v1: الطريق السهل (والغلط)</h2>
+<pre><code>Std_ReturnType gpio_pin_initialize(const pin_config_t *_pin_config) {
+    return gpio_pin_setup(_pin_config-&gt;port, _pin_config-&gt;pin,
+                          _pin_config-&gt;direction, _pin_config-&gt;logic);
+}</code></pre>
+<p>سطر واحد، ومفيش تكرار. فين المشكلة؟ اتنين.</p>
+<p><b>NULL:</b> لو حد بعت NULL، <code>_pin_config-&gt;port</code> بيقرا من عنوان 0. الدالة دي لازم تفحص قبل ما تلمس المؤشر.</p>
+<p><b>الاعتماد:</b> اقفل <code>GPIO_DIRECT_API_ENABLE</code> في الكونفيج. <code>gpio_pin_setup</code> مش موجودة، والـ Struct API وقع. يعني المفتاحين مش مستقلين، واحد فيهم كدّاب.</p>
+
+<h2>v2: helpers مشتركة</h2>
+<div class="goal"><b>الهدف:</b> الاتنين يشتغلوا على نفس الـ helpers الداخلية، ومحدش فيهم ينادي التاني.</div>
+<p>إيه اللي فعلًا مشترك؟ الجداول (<code>tris_registers</code> وأخواتها)، و <code>gpio_pin_auto_digital</code>، و <code>gpio_reg_write_masked</code>. دول متعرّفين برّه أي <code>#if</code> خاص بـ API، فموجودين دايمًا طول ما الـ GPIO مفتوح.</p>
+<pre><code>Std_ReturnType gpio_pin_initialize(const pin_config_t *_pin_config) {
+    Std_ReturnType ret = E_OK;
+
+    if (NULL == _pin_config) {
+        ret = E_NOT_OK;
+    }
+    else if (!IS_VALID_PORT_PIN(_pin_config-&gt;port, _pin_config-&gt;pin) ||
+             !IS_VALID_DIRECTION(_pin_config-&gt;direction) ||
+             !IS_VALID_LOGIC(_pin_config-&gt;logic)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        port_index_t port = (port_index_t)_pin_config-&gt;port;
+        pin_index_t  pin  = (pin_index_t)_pin_config-&gt;pin;
+
+        gpio_pin_auto_digital(port, pin);
+
+        if (GPIO_HIGH == _pin_config-&gt;logic) {
+            SET_BIT(*(lat_registers[port]), pin);
+        } else {
+            CLEAR_BIT(*(lat_registers[port]), pin);
+        }
+
+        if (GPIO_DIRECTION_OUTPUT == _pin_config-&gt;direction) {
+            CLEAR_BIT(*(tris_registers[port]), pin);
+        } else {
+            SET_BIT(*(tris_registers[port]), pin);
+        }
+    }
+    return ret;
+}</code></pre>
+<p>أطول من v1، أيوه. وفيه شبه تكرار مع <code>gpio_pin_setup</code>. ده تمن الاستقلال، واخترنا ندفعه. لاحظ حاجة صغيرة: هنا الـ LAT بيتكتب حتى لو الرجل Input. ده مقصود: الرجل Input دلوقتي، بس لو اتحولت Output بعدين هتطلع بالقيمة دي، مش بقيمة عشوائية.</p>
+<p>وليه النسخ لـ <code>port</code> و <code>pin</code> محليين؟ كل <code>_pin_config-&gt;port</code> قراية من struct فيه bitfields، يعني shift و AND كل مرة. نقراه مرة ونستخدمه أربع.</p>
+
+<h2>v3: مفاتيح الـ #if بتشتغل بجد</h2>
+<pre><code>#if GPIO_MODULE_ENABLE == CONFIG_ENABLE
+  /* الجداول و الـ helpers هنا: مشتركة */
+
+  #if GPIO_DIRECT_API_ENABLE == CONFIG_ENABLE
+    /* gpio_pin_setup, gpio_pin_write, ... */
+  #endif
+
+  #if GPIO_STRUCT_API_ENABLE == CONFIG_ENABLE
+    #if GPIO_PORT_PIN_CONFIGURATIONS == CONFIG_ENABLE
+      /* gpio_pin_initialize, gpio_pin_write_logic, ... */
+    #endif
+    #if GPIO_PORT_CONFIGURATIONS == CONFIG_ENABLE
+      /* gpio_port_initialize, gpio_port_write_logic, ... */
+    #endif
+  #endif
+#endif</code></pre>
+<p>اختبرها بإيدك: اقفل الـ Direct، اعمل build. اقفل الـ Struct وافتح الـ Direct، build. اقفل الاتنين، build. التلاتة لازم يعدّوا (التالت هيعدّي لو الليد مقفولة، ولو مفتوحة الـ <code>#error</code> هيوقفك برسالة واضحة). لو أي واحدة وقعت بخطأ "undefined"، فيه اعتماد مستخبي.</p>
+<aside class="tip"><b>خلي بالك</b>مع الـ Direct مقفول، الكومبايلر ممكن يحذّرك إن helper زي <code>gpio_reg_write_masked</code> مش مستخدم لو كمان الـ port configurations مقفولة. ده تحذير مش خطأ، وبيقولك إن الكود ده مش هيتحط في الـ Flash أصلًا.</aside>
+<a data-src="MCAL_Layer/GPIO/hal_gpio.c"></a>
+
+<h2>إمتى أستخدم الـ Struct فعلًا؟</h2>
+<pre><code>/* pins.h : كل رجول المشروع في مكان واحد */
+static const pin_config_t PIN_BUZZER = { .port = PORTD_INDEX, .pin = GPIO_PIN7,
+                                         .direction = GPIO_DIRECTION_OUTPUT, .logic = GPIO_LOW };
+static const pin_config_t PIN_RELAY  = { .port = PORTD_INDEX, .pin = GPIO_PIN6,
+                                         .direction = GPIO_DIRECTION_OUTPUT, .logic = GPIO_HIGH };  /* Active Low */
+
+/* main.c */
+gpio_pin_initialize(&amp;PIN_BUZZER);
+gpio_pin_initialize(&amp;PIN_RELAY);</code></pre>
+<p>البورد اتعدّلت والريلاي اتنقل لـ RE0؟ سطر واحد في pins.h. ده الفرق اللي بيبان لما المشروع يبقى فيه 20 رجل.</p>
+
+<div class="quiz"><p class="q">قفلت <code>GPIO_DIRECT_API_ENABLE</code> والـ build وقع بـ "undefined symbol gpio_pin_setup" جوّه gpio_pin_initialize. معنى كده؟</p>
+<button>لازم الاتنين يبقوا مفتوحين دايمًا</button><button data-ok>الـ Struct API بيعتمد على الـ Direct، والمفتاح مش مستقل</button><button>XC8 فيه bug</button>
+<p class="why">ده بالظبط اللي v2 صلّحه.</p></div>
+
+<details class="ex"><summary>تمرين: gpio_pin_toggle_logic</summary>
+<p class="task">اكتب <code>gpio_pin_toggle_logic(const pin_config_t *_pin_config)</code> من غير ما تنادي أي دالة من الـ Direct.</p>
+<details><summary>اعرض الحل</summary>
+<pre><code>Std_ReturnType gpio_pin_toggle_logic(const pin_config_t *_pin_config) {
+    Std_ReturnType ret = E_OK;
+    if (NULL == _pin_config) {
+        ret = E_NOT_OK;
+    }
+    else if (!IS_VALID_PORT_PIN(_pin_config-&gt;port, _pin_config-&gt;pin)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        TOGGLE_BIT(*(lat_registers[_pin_config-&gt;port]), _pin_config-&gt;pin);
+    }
+    return ret;
+}</code></pre></details></details>

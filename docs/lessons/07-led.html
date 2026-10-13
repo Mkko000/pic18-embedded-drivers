@@ -98,6 +98,7 @@ void main(void) {
 <h2>جرّب تكمّل بنفسك</h2>
 <p>الدرايفر مفيهوش دالة <code>led_set(led, state)</code> بتاخد ON أو OFF كباراميتر. حاول تكتبها في 6 سطور: فحص الـ NULL، وفحص إن الـ state صح، وبعدين تنادي <code>led_on</code> أو <code>led_off</code> وترجّع نتيجتها. لو عملتها، هتلاقي الـ Morse ممكن يتكتب أقصر.</p>
 
+<p>الدرايفر ده بيتكتب من الصفر خطوة خطوة في <a href="#/b-led">درايفر الـ LED من الصفر</a>.</p>
 <div class="quiz"><p class="q">ليد Active Low على RD2. ندهت <code>led_initialize</code>. الرجل هتبقى إيه؟</p>
 <button>Output و LOW</button><button data-ok>Output و HIGH، يعني الليد مطفية</button><button>Input</button>
 <p class="why"><code>LED_OFF_LOGIC</code> لليد Active Low بيدّي GPIO_HIGH. الرجل HIGH والطرف التاني على VCC، يبقى مفيش تيار.</p></div>

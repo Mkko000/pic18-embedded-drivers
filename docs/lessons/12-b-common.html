@@ -1,0 +1,86 @@
+<p>عندنا كود بيومض ليد بالريجسترات. لو كمّلنا كده، كل مشروع هيبقى ملف واحد طويل مليان TRISC و LATD. الدرس ده بنرتب البيت قبل ما نجيب العفش: الفولدرات، والأنواع، والماكروز.</p>
+
+<h2>الخطوة 1: الفولدرات</h2>
+<div class="goal"><b>الهدف:</b> هيكل يقدر ياخد 20 درايفر من غير ما يبقى كركبة.</div>
+<pre><code>pic18-embedded-drivers/
+├── application.c
+├── Config/        device_config.h, config_bits.c
+├── Common/        mcal_std_types.h, std_macros.h, compiler.h, std_libraries.h
+├── MCAL_Layer/    GPIO/  (وبعدين ADC/ و Timer/ و UART/ ...)
+└── ECU_Layer/     LED/   (وبعدين Button/ و LCD/ ...)</code></pre>
+<p>طب ليه مش فولدر واحد اسمه drivers وخلاص؟ لأن فيه نوعين من الدرايفرات مختلفين جدًا. نوع بيكلم حاجة <b>جوّه</b> الشريحة (GPIO، Timer، ADC): ده بيلمس ريجسترات، ومربوط بالشريحة دي بالذات. ونوع بيكلم حاجة <b>برّه</b> الشريحة (ليد، زرار، شاشة): ده مالوش دعوة بالريجسترات، وبيعرف إن الليد ليها Active Low ولا High. الأول اسمه MCAL (Microcontroller Abstraction Layer)، والتاني ECU Abstraction.</p>
+<div class="story">مثال حقيقي: قررت تنقل المشروع من PIC18F4620 لـ PIC18F45K22 (أحدث وأرخص). في الـ K22 الـ Analog بيتحكم فيه بريجستر اسمه ANSELx لكل بورت، مش ADCON1. لو الكود كله ملف واحد، هتدوّر على كل حتة. مع الطبقات، بتعدّل في MCAL_Layer/GPIO بس، والليد والأبلكيشن مش هيحسوا.</div>
+<p>والـ Config والـ Common؟ دول مش طبقات، دول حاجات الكل محتاجها. الـ Config فيه قرارات المشروع ده (سرعة، فيوزات، إيه مفتوح). الـ Common فيه أدوات عامة مالهاش علاقة بأي مشروع (أنواع، ماكروز). لو بدأت مشروع جديد خالص، هتاخد Common زي ما هو، وتكتب Config جديد.</p>
+
+<h2>الخطوة 2: الأنواع</h2>
+<div class="goal"><b>الهدف:</b> أنواع حجمها معروف، ونوع واحد لنتيجة كل الدوال.</div>
+<pre><code>#ifndef MCAL_STD_TYPES_H
+#define MCAL_STD_TYPES_H
+
+#include "std_libraries.h"
+#include "compiler.h"
+
+typedef unsigned char   uint8;
+typedef signed char     sint8;
+typedef unsigned short  uint16;
+typedef signed short    sint16;
+typedef unsigned long   uint32;
+typedef signed long     sint32;
+
+typedef uint8           Std_ReturnType;
+#define E_OK            (Std_ReturnType)0x01
+#define E_NOT_OK        (Std_ReturnType)0x00
+
+#endif</code></pre>
+<p><b>ليه مش <code>stdint.h</code> و <code>uint8_t</code>؟</b> سؤال في محله، والـ XC8 بيدعمها. الأسامي دي جاية من AUTOSAR، وكتير من الشغل في الصناعة ماشي عليها، فالكود بيبقى شبه اللي هتشوفه في الشغل. والأهم إن عندنا مكان واحد بنقرر فيه الحجم: لو نقلنا الكود لمعالج 32 بت فيه <code>unsigned short</code> مش 16، بنغيّر سطر واحد. لو حبيت تستخدم <code>uint8_t</code> مش غلط خالص، المهم متخلطش الاتنين في نفس المشروع.</p>
+<p><b>ليه <code>Std_ReturnType</code>؟</b> كل دالة في الدرايفر بترجع إذا كانت نجحت ولا لأ. لو كل واحدة رجّعت حاجة شكل (bool هنا، int هناك، -1 لما تفشل)، الكود اللي بينادي هيبقى مليان حالات. نوع واحد وقيمتين.</p>
+<p><b>Include guard:</b> الـ <code>#ifndef ... #define ... #endif</code>. hal_gpio.h بيعمل include لـ mcal_std_types.h، و ecu_led.h بيعمل include لـ hal_gpio.h، والأبلكيشن بيعمل include للاتنين. من غير الـ guard الملف هيتقري مرتين والـ typedef هيتكرر ويطلع خطأ.</p>
+
+<h2>الخطوة 3: الماكروز، نسخة ورا نسخة</h2>
+<div class="goal"><b>الهدف:</b> نشغّل ونطفّي بت واحد في أي ريجستر بكلمة واضحة.</div>
+<p>النسخة الأولى اللي أي حد هيكتبها:</p>
+<pre><code>#define SET_BIT(REG, BIT)   REG |= 1 &lt;&lt; BIT</code></pre>
+<p>شغالة في <code>SET_BIT(LATC, 3)</code>. تعالى نكسرها:</p>
+<pre><code>SET_BIT(LATC, n + 1);          /* يبقى: LATC |= 1 &lt;&lt; n + 1   ← تمام بالصدفة، الجمع أقوى من الشيفت */
+if (x) SET_BIT(LATC, 0); else ...;   /* تمام */
+y = SET_BIT(LATC, 0) | 0x10;   /* يبقى: y = LATC |= 1 &lt;&lt; 0 | 0x10  ← الـ OR اتطبق على الماسك، ولّعت بت 4 كمان */</code></pre>
+<p>المشكلة إن الماكرو بيلزق الكلام زي ما هو، والأولوية بين العمليات بتلعب. الحل: أقواس حوالين كل باراميتر، وحوالين الماكرو كله.</p>
+<pre class="diff"><code>-#define SET_BIT(REG, BIT)   REG |= 1 &lt;&lt; BIT
++#define BIT_MASK                    ((uint8)1)
++#define SET_BIT(REG, BIT_POSN)      ((REG) |=  ((BIT_MASK) &lt;&lt; (BIT_POSN)))
++#define CLEAR_BIT(REG, BIT_POSN)    ((REG) &amp;= ~((BIT_MASK) &lt;&lt; (BIT_POSN)))
++#define TOGGLE_BIT(REG, BIT_POSN)   ((REG) ^=  ((BIT_MASK) &lt;&lt; (BIT_POSN)))
++#define READ_BIT(REG, BIT_POSN)     (((REG) &gt;&gt; (BIT_POSN)) &amp; (BIT_MASK))</code></pre>
+<p><b>ليه <code>(uint8)1</code> مش 1 وخلاص؟</b> الـ 1 لوحده <code>int</code>، وعلى الـ XC8 ده 16 بت. أدوات الفحص زي MISRA هتشتكي من خلط الأحجام. والأهم إن الاسم <code>BIT_MASK</code> بيقول المعنى.</p>
+<p><b>والـ CLEAR بـ <code>~</code>:</b> <code>~(1 &lt;&lt; 3)</code> بيدّي <code>1111 0111</code>. الـ AND معاه بيسيب كل البتات زي ما هي ويصفّر بت 3 بس.</p>
+<div class="oops"><b>الغلطة اللي مفيش ماكرو يحميك منها</b>
+<p><code>SET_BIT(arr[i++], 0)</code> بتتحول لـ <code>((arr[i++]) |= ...)</code>، تمام هنا، مرة واحدة. بس <code>READ_BIT</code> لو اتكتب بطريقة فيها REG مرتين كانت هتزوّد i مرتين. القاعدة: متدّيش ماكرو أبدًا حاجة فيها <code>++</code> أو نداء دالة. التحذير مكتوب أول الملف في الريبو.</p></div>
+<a data-src="Common/std_macros.h"></a> <a data-src="Common/mcal_std_types.h"></a>
+
+<h2>الخطوة 4: compiler.h</h2>
+<p>ملف صغير بيكشف الكومبايلر. فايدته الحقيقية بتظهر لما تيجي تختبر دالة حسابية (زي تحويل قراية ADC لدرجة حرارة) على الكمبيوتر بـ GCC قبل ما تحرقها: نفس الكود يتبني في المكانين.</p>
+<pre><code>#if defined(__XC8__)
+    #define COMPILER_XC8
+#elif defined(__GNUC__)
+    #define COMPILER_GCC
+#endif
+
+#if defined(COMPILER_XC8) || defined(COMPILER_GCC)
+    #define INLINE              static inline
+#else
+    #define INLINE              static
+#endif</code></pre>
+
+<div class="quiz"><p class="q">ليه الـ LED driver في ECU مش في MCAL؟</p>
+<button>علشان أصغر</button><button data-ok>لأنه بيوصف حاجة برّه الشريحة ومبيلمسش ريجسترات، بيكلم الـ GPIO</button><button>مش فارقة</button>
+<p class="why">لو غيّرت الشريحة، الليد هي هي. اللي بيتغير هو الـ MCAL.</p></div>
+<div class="quiz"><p class="q"><code>CLEAR_BIT(LATC, 5)</code> و LATC كان 0xFF. النتيجة؟</p>
+<button>0x20</button><button data-ok>0xDF</button><button>0x00</button>
+<p class="why">~(1&lt;&lt;5) = 1101 1111 = 0xDF. الـ AND معاه بيصفّر بت 5 بس.</p></div>
+
+<details class="ex"><summary>تمرين: ماكرو لأكتر من بت</summary>
+<p class="task">اكتب ماكرو <code>WRITE_FIELD(REG, MASK, SHIFT, VAL)</code> يكتب قيمة في مجموعة بتات من غير ما يلمس الباقي. مثال: <code>WRITE_FIELD(ADCON1, 0x0F, 0, 0x0E)</code> يكتب 0x0E في البتات الأربعة اللي تحت.</p>
+<details><summary>اعرض الحل</summary>
+<pre><code>#define WRITE_FIELD(REG, MASK, SHIFT, VAL) \
+    ((REG) = (uint8)(((REG) &amp; (uint8)~(MASK)) | ((uint8)((VAL) &lt;&lt; (SHIFT)) &amp; (MASK))))</code></pre>
+<p>امسح المكان الأول بالـ AND مع عكس الماسك، وبعدين حط القيمة بعد ما تقصّها بالماسك علشان لو حد بعت قيمة كبيرة متطلعش برّه. ده بالظبط اللي الـ GPIO بيعمله مع ADCON1. لاحظ إن REG بيظهر مرتين، فالقاعدة بتاعة الـ <code>++</code> مهمة هنا أكتر.</p></details></details>

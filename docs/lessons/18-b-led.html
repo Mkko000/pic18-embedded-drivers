@@ -1,0 +1,134 @@
+<p>الـ GPIO خلص. دلوقتي أول درايفر في طبقة ECU. هتلاحظ إن الدرايفر ده تقريبًا مفيهوش "شغل"، كله نداءات للـ GPIO. ده بالظبط المقصود: كل الصعب اتعمل تحت، وهنا بنضيف المعنى.</p>
+
+<h2>v1: الأبسط</h2>
+<pre><code>typedef struct {
+    uint8 port_name  : 4;
+    uint8 pin        : 3;
+    uint8 led_status : 1;
+} led_t;
+
+Std_ReturnType led_turn_on(const led_t *led) {
+    return gpio_pin_write(led-&gt;port_name, led-&gt;pin, GPIO_HIGH);
+}</code></pre>
+<p>دي كانت أول نسخة في المشروع فعلًا (شفناها في درس "درايفر الـ LED"). نشوف بتقع فين:</p>
+<p>1. مفيش فحص NULL. 2. <code>port_name</code> 4 بت والـ GPIO عنده 3: مش هيبوظ حاجة النهارده، بس الأنواع مش متطابقة. 3. <code>GPIO_HIGH</code> ثابتة: ليد Sink هتطفي لما تقولها نوّري. 4. <code>led_status</code> اسمه حالة، بس محدش بيحدّثه. لو حد قراه هيلاقي قيمة كدابة.</p>
+
+<h2>v2: Active High و Active Low</h2>
+<div class="goal"><b>الهدف:</b> الأبلكيشن يقول on و off، والدرايفر هو اللي يعرف المنطق.</div>
+<pre class="diff"><code>+typedef enum { LED_ACTIVE_HIGH_MODE = 0, LED_ACTIVE_LOW_MODE = 1 } led_active_t;
++typedef enum { LED_OFF = 0, LED_ON = 1 } led_state_t;
++
+-typedef struct {
+-    uint8 port_name  : 4;
+-    uint8 pin        : 3;
+-    uint8 led_status : 1;
+-} led_t;
++typedef struct {
++    uint8 port      : 3;
++    uint8 pin       : 3;
++    uint8 active    : 1;
++    uint8 reserved  : 1;
++} led_config_t;</code></pre>
+<p>شلنا الـ status خالص. الحالة الحقيقية مكانها الـ LAT، وأي نسخة تانية منها في RAM ممكن تتعارض معاه. لو عايز تعرف الليد منوّرة ولا لأ، اقرا الـ LAT. ده اسمه "مصدر واحد للحقيقة".</p>
+<pre><code>#define LED_ON_LOGIC(led)   (((led)-&gt;active == LED_ACTIVE_HIGH_MODE) ? GPIO_HIGH : GPIO_LOW)
+#define LED_OFF_LOGIC(led)  (((led)-&gt;active == LED_ACTIVE_HIGH_MODE) ? GPIO_LOW  : GPIO_HIGH)</code></pre>
+
+<h2>v3: ننادي أنهي API؟</h2>
+<div class="goal"><b>الهدف:</b> الليد تشتغل سواء الـ Direct مفتوح أو الـ Struct بس.</div>
+<pre><code>#if GPIO_DIRECT_API_ENABLE == CONFIG_ENABLE
+    #define LED_USE_GPIO_DIRECT_API
+#endif
+
+#ifndef LED_USE_GPIO_DIRECT_API
+static inline pin_config_t led_to_pin_config(const led_config_t *led, logic_t logic) {
+    pin_config_t cfg;
+    cfg.port      = led-&gt;port;
+    cfg.pin       = led-&gt;pin;
+    cfg.direction = GPIO_DIRECTION_OUTPUT;
+    cfg.logic     = logic;
+    return cfg;
+}
+#endif
+
+static Std_ReturnType led_write(const led_config_t *led, logic_t logic) {
+#ifdef LED_USE_GPIO_DIRECT_API
+    return gpio_pin_write((port_index_t)led-&gt;port, (pin_index_t)led-&gt;pin, logic);
+#else
+    pin_config_t cfg = led_to_pin_config(led, logic);
+    return gpio_pin_write_logic(&amp;cfg, logic);
+#endif
+}</code></pre>
+<p>القرار بيتاخد مرة واحدة فوق في ماكرو، وكل الدوال بتسأله. والتحويل لـ struct في helper واحد بدل ما يتكتب في كل دالة. و <code>led_write</code> نفسها static، يعني داخلية: on و off هيستخدموها.</p>
+<p>ليه الـ Direct أولى لو الاتنين مفتوحين؟ لأن الليد عندها struct خاص بيها أصلًا، فتحويله لـ struct تاني علشان يتفك تاني تحت ده شغل على الفاضي.</p>
+
+<h2>v4: الدوال كلها</h2>
+<pre><code>Std_ReturnType led_initialize(const led_config_t *led) {
+    Std_ReturnType ret = E_OK;
+    if (NULL == led) {
+        ret = E_NOT_OK;
+    }
+    else {
+#ifdef LED_USE_GPIO_DIRECT_API
+        ret = gpio_pin_setup((port_index_t)led-&gt;port, (pin_index_t)led-&gt;pin,
+                             GPIO_DIRECTION_OUTPUT, LED_OFF_LOGIC(led));
+#else
+        pin_config_t cfg = led_to_pin_config(led, LED_OFF_LOGIC(led));
+        ret = gpio_pin_initialize(&amp;cfg);
+#endif
+    }
+    return ret;
+}
+
+Std_ReturnType led_on(const led_config_t *led) {
+    return (NULL == led) ? E_NOT_OK : led_write(led, LED_ON_LOGIC(led));
+}
+Std_ReturnType led_off(const led_config_t *led) {
+    return (NULL == led) ? E_NOT_OK : led_write(led, LED_OFF_LOGIC(led));
+}</code></pre>
+<p>الـ <code>ret = </code> قدام نداء الـ GPIO هو بالظبط الغلطة اللي اتصلحت من النسخة الأولى. لو الـ GPIO رفض الرجل، الأبلكيشن هيعرف.</p>
+<p>و <code>led_get_state</code>:</p>
+<pre><code>        logic_t latch = GPIO_LOW;
+        ret = gpio_pin_read_latch((port_index_t)led-&gt;port, (pin_index_t)led-&gt;pin, &amp;latch);
+        if (E_OK == ret) {
+            *state = (latch == LED_ON_LOGIC(led)) ? LED_ON : LED_OFF;
+        }</code></pre>
+<p>اللاتش مش PORT، والمقارنة بـ <code>LED_ON_LOGIC</code> مش بـ GPIO_HIGH، فليد Sink هتتقري صح. ومش بنكتب في <code>*state</code> لو القراية فشلت، علشان اللي بينادي ميلاقيش قيمة مش حقيقية.</p>
+<a data-src="ECU_Layer/LED/ecu_led.h"></a> <a data-src="ECU_Layer/LED/ecu_led.c"></a>
+
+<h2>نختبر</h2>
+<pre><code>led_config_t a = { .port = PORTC_INDEX, .pin = GPIO_PIN0, .active = LED_ACTIVE_HIGH_MODE };
+led_config_t b = { .port = PORTC_INDEX, .pin = GPIO_PIN1, .active = LED_ACTIVE_LOW_MODE  };
+led_state_t s;
+
+led_initialize(&amp;a);  /* LATC.0 = 0 */
+led_initialize(&amp;b);  /* LATC.1 = 1  ← مطفية لأنها Active Low */
+led_on(&amp;b);          /* LATC.1 = 0 */
+led_get_state(&amp;b, &amp;s);   /* s == LED_ON */
+led_on(NULL);        /* E_NOT_OK */</code></pre>
+<p>جرّبه مرتين: مرة الـ Direct مفتوح، ومرة مقفول. النتايج لازم تبقى نفس الحاجة بالظبط.</p>
+
+<div class="quiz"><p class="q">ليه شلنا <code>led_status</code> من الـ struct؟</p>
+<button>علشان نوفّر بت</button><button data-ok>علشان الحالة الحقيقية في الـ LAT، ونسخة تانية في الـ RAM ممكن تكدب</button><button>علشان الـ GPIO مبيدعمهوش</button>
+<p class="why">لو حد نادى gpio_pin_toggle على نفس الرجل، النسخة اللي في RAM مش هتعرف.</p></div>
+
+<details class="ex"><summary>تمرين: led_blink_n</summary>
+<p class="task">اكتب <code>led_blink_n(const led_config_t *led, uint8 times)</code> تومض الليد عدد مرات، 100ms منوّرة و 100ms مطفية، وترجع الليد لحالتها الأصلية في الآخر.</p>
+<details><summary>اعرض الحل</summary>
+<pre><code>Std_ReturnType led_blink_n(const led_config_t *led, uint8 times) {
+    Std_ReturnType ret = E_OK;
+    led_state_t    was = LED_OFF;
+    uint8          i;
+
+    ret = led_get_state(led, &amp;was);     /* بيفحص NULL كمان */
+    for (i = 0; (E_OK == ret) &amp;&amp; (i &lt; times); i++) {
+        ret = led_on(led);
+        __delay_ms(100);
+        if (E_OK == ret) { ret = led_off(led); }
+        __delay_ms(100);
+    }
+    if ((E_OK == ret) &amp;&amp; (LED_ON == was)) {
+        ret = led_on(led);
+    }
+    return ret;
+}</code></pre>
+<p>خد بالك: دالة فيها delay بتوقف كل حاجة. في ECU حقيقي، حاجة زي دي بتتعمل بتايمر. بس كتمرين على النتايج والحالة، دي كويسة. ومحتاجة <code>_XTAL_FREQ</code>، فلازم الملف يعمل include لـ device_config.h.</p></details></details>

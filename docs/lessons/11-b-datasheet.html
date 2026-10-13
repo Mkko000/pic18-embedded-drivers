@@ -1,0 +1,49 @@
+<p>قبل ما نكتب درايفر لأي حاجة في الشريحة، بنفتح الفصل بتاعها في الداتاشيت. مش لازم تقراه كله، بس فيه حاجات لو فاتتك هتكتب درايفر بيشتغل على مكتبك ويقع عند أول استخدام حقيقي. الدرس ده بيوريك تقرا إيه، وبيطلّع من كل جزء القرار اللي أخدناه في الكود.</p>
+<p>في داتاشيت الـ PIC18F2525/2620/4525/4620 (DS39626)، الفصل اسمه <b>I/O Ports</b>، رقم 9 تقريبًا. افتحه جنبك.</p>
+
+<h2>1. أول صفحة: كل بورت ليه تلات ريجسترات</h2>
+<p>الداتاشيت بتقول بالحرف تقريبًا: TRIS للاتجاه، و PORT بيقرا مستوى الرجول، و LAT هو الـ output latch. وتحت فيه رسمة (Generic I/O Port Operation) بتوريك إن الكتابة في PORT بتروح للـ LAT أصلًا، وإن قراية PORT بتيجي من الرجل نفسها.</p>
+<p><b>القرار في الكود:</b> الكتابة دايمًا في LAT، والقراية من PORT، وفيه دالة منفصلة تقرا LAT. وعلشان كل دالة تعرف تلاقي الريجستر الصح، عملنا تلات جداول عناوين.</p>
+
+<h2>2. جدول الرجول لكل بورت</h2>
+<p>كل بورت ليه جدول بيقول كل رجل بتعمل إيه غير الـ I/O. هتلاقي حاجات زي:</p>
+<table>
+<tr><th>الرجل</th><th>وظايف تانية</th><th>اللي يهمنا</th></tr>
+<tr><td>RA0..RA3, RA5</td><td>AN0..AN4</td><td>Analog بعد الريست</td></tr>
+<tr><td>RA4</td><td>T0CKI</td><td>Open-drain كـ output، محتاجة pull-up خارجية</td></tr>
+<tr><td>RA6, RA7</td><td>OSC2, OSC1</td><td>مش متاحة لو بتستخدم كريستالة</td></tr>
+<tr><td>RB0..RB4</td><td>AN12, AN10, AN8, AN9, AN11</td><td>Analog لو PBADEN = ON</td></tr>
+<tr><td>RB5..RB7</td><td>PGM, PGC, PGD</td><td>الـ PICkit بيستخدم RB6 و RB7</td></tr>
+<tr><td>RE0..RE2</td><td>AN5..AN7</td><td>PORTE فيه 3 رجول I/O بس، و RE3 هي MCLR (دخل بس)</td></tr>
+</table>
+<p><b>القرارات في الكود:</b> <code>PORTE_PIN_MAX_NUMBER 3</code> وفحص خاص لـ PORTE. جدول <code>analog_channel_map</code> اللي بيربط كل رجل بقناتها. و <code>gpio_init()</code> بتخلي الكل Digital.</p>
+<aside class="tip"><b>خلي بالك</b>RA4 لوحدها في البورت ده open-drain: تقدر تشدها للأرضي بس، ومش هتطلع 5V لوحدها. لو حطيت عليها ليد Source ومش بتنوّر، دي مش مشكلة في الدرايفر. يا تستخدمها Sink، يا تحط pull-up 10k. والـ RB6 و RB7 لو عليهم حاجة تقيلة، البرمجة بالـ PICkit ممكن تفشل.</aside>
+
+<h2>3. ADCON1: الـ Analog والـ Digital</h2>
+<p>في فصل الـ ADC (مش الـ I/O) هتلاقي ريجستر ADCON1 وفيه بتات PCFG3:PCFG0، وجدول بيقول كل قيمة بتخلّي أنهي رجول Analog. اللي هتلاحظه: مفيش بت لكل رجل. القيمة 0x0F يعني الكل Digital، والقيم الأقل بتفتح من AN0 لحد قناة معيّنة. وفيه ملحوظة مهمة في الـ I/O Ports: الرجل الـ Analog لما تقراها Digital بترجع 0.</p>
+<p><b>القرار:</b> <code>GPIO_PCFG_ALL_DIGITAL 0x0F</code>، ونكتب في الـ PCFG بس من غير ما نلمس بتات VCFG اللي في نفس الريجستر (دي بتاعة الـ ADC). وده هيبقى درس كامل لوحده.</p>
+
+<h2>4. INTCON2: الـ pull-ups</h2>
+<p>في وصف PORTB: "Each of the PORTB pins has a weak internal pull-up... enabled by clearing RBPU (INTCON2&lt;7&gt;)". اقرا كلمة clearing تاني. البت ده active low: صفر يفتح، واحد يقفل. وكمان: الـ pull-up بيتقفل لوحده على أي رجل بقت Output.</p>
+<p><b>القرار:</b> دالتين بأسامي واضحة، <code>gpio_portb_pullup_enable</code> و <code>gpio_portb_pullup_disable</code>، علشان محدش يكتب <code>RBPU = 1</code> وهو فاكره بيفتح.</p>
+
+<h2>5. القيم بعد الريست</h2>
+<p>آخر الفصل فيه جدول Summary of Registers Associated with PORTx، وفيه عمود القيمة بعد الـ Power-on Reset. TRIS كلها 1 (Input). LAT قيمتها x، يعني <b>مش معروفة</b>.</p>
+<p>الكلمة دي، x، هي سبب قاعدة "اكتب LAT الأول وبعدين TRIS". لو خليت الرجل Output الأول، هتطلع بقيمة عشوائية لحد السطر اللي بعده.</p>
+
+<h2>6. الحدود الكهربية</h2>
+<p>فصل Electrical Characteristics: الـ 25mA للرجل و 200mA للبورتات. ده مش قرار في الدرايفر، بس قرار في التوصيل، وشفناه بالتفصيل في الجزء الأول.</p>
+
+<div class="quiz"><p class="q">ليد على RA4 متوصلة Source، والكود بيكتب HIGH. الليد مش بتنوّر. السبب الأقرب؟</p>
+<button>الدرايفر فيه bug</button><button data-ok>RA4 open-drain، مبتطلعش HIGH لوحدها</button><button>RA4 Analog</button>
+<p class="why">RA4 مش من الرجول الـ Analog أصلًا (AN4 هي RA5). هي open-drain: بتشد للأرضي بس.</p></div>
+<div class="quiz"><p class="q">عايز تفتح الـ pull-ups بتاعة PORTB. تكتب إيه؟</p>
+<button><code>INTCON2bits.RBPU = 1;</code></button><button data-ok><code>INTCON2bits.RBPU = 0;</code></button><button><code>WPUB = 0xFF;</code></button>
+<p class="why">RBPU active low. والـ WPUB ريجستر موجود في شرايح أحدث، مش في الـ 4620.</p></div>
+
+<details class="ex"><summary>تمرين: اعمل الجدول بتاعك</summary>
+<p class="task">من الداتاشيت، اكتب لكل رجل من RA0 لـ RA7: القناة الـ Analog لو موجودة، وأي ملحوظة خاصة. قارن اللي كتبته بالسطر الأول من <code>analog_channel_map</code>.</p>
+<details><summary>اعرض الحل</summary>
+<pre><code>/*            0    1    2    3    4    5    6    7  */
+/* PORTA */ { 0,   1,   2,   3,   NA,  4,   NA,  NA },</code></pre>
+<p>RA0..RA3 هما AN0..AN3. RA4 مالهاش (وهي open-drain). RA5 هي AN4، مش AN5، ودي بتقع فيها ناس كتير. RA6 و RA7 للكريستالة.</p></details></details>

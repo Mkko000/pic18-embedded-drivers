@@ -1,0 +1,162 @@
+<p>العقد جاهز في الـ .h. دلوقتي نفتح <code>hal_gpio.c</code> ونكتب. هنبدأ بأسوأ نسخة ممكنة تشتغل، وبعدين كل نسخة هتصلّح مشكلة واحدة إحنا شفناها بعينينا. لو قريت الدرس ده بسرعة، هتطلع بالكود النهائي. لو جرّبت كل نسخة في الـ Simulator، هتطلع فاهم ليه الكود النهائي شكله كده.</p>
+
+<h2>v1: switch على البورت</h2>
+<div class="goal"><b>الهدف:</b> <code>gpio_pin_write</code> تشتغل. وخلاص.</div>
+<pre><code>Std_ReturnType gpio_pin_write(port_index_t port, pin_index_t pin, logic_t logic) {
+    switch (port) {
+        case PORTA_INDEX: if (logic) PORTA |= (1 &lt;&lt; pin); else PORTA &amp;= ~(1 &lt;&lt; pin); break;
+        case PORTB_INDEX: if (logic) PORTB |= (1 &lt;&lt; pin); else PORTB &amp;= ~(1 &lt;&lt; pin); break;
+        case PORTC_INDEX: if (logic) PORTC |= (1 &lt;&lt; pin); else PORTC &amp;= ~(1 &lt;&lt; pin); break;
+        case PORTD_INDEX: if (logic) PORTD |= (1 &lt;&lt; pin); else PORTD &amp;= ~(1 &lt;&lt; pin); break;
+        case PORTE_INDEX: if (logic) PORTE |= (1 &lt;&lt; pin); else PORTE &amp;= ~(1 &lt;&lt; pin); break;
+    }
+    return E_OK;
+}</code></pre>
+<p>جرّبها على ليد: شغالة. فين المشكلة؟ تلاتة.</p>
+<p><b>1. بنكتب في PORT.</b> فاكر حكاية read-modify-write من أول درس؟ <code>PORTC |= ...</code> معناها: اقرا PORTC (الجهد الحقيقي على الرجول)، غيّر بت، اكتب الكل. لو فيه رجل تانية عليها حمل تقيل أو مكثف وجهدها لسه ماطلعش، هتتقري 0 وتتكتب 0.</p>
+<div class="story">جرّبها كده: RC0 عليها ليد ومكثف 10µF بالتوازي (بيمثّل حمل بطيء). اكتب RC0 = 1 وعلى طول في السطر اللي بعده RC1 = 1. في v1 هتلاقي RC0 ساعات بتطفي لوحدها. نفس التجربة بـ LATC، عمرها ما هتحصل.</div>
+<p><b>2. الكود متكرر 5 مرات.</b> ده مش بس شكل. كل دالة هتكتبها (read، toggle، direction) هيبقى فيها نفس الـ switch. 12 دالة × 5 حالات = 60 مكان ممكن تغلط في واحد فيهم.</p>
+<p><b>3. مفيش فحص.</b> لو pin = 9، <code>1 &lt;&lt; 9</code> بـ 512، والـ cast لبايت بيدّي 0، فمفيش حاجة هتحصل والدالة هتقول E_OK.</p>
+
+<h2>v2: جداول عناوين + LAT</h2>
+<div class="goal"><b>الهدف:</b> نشيل الـ switch ونكتب في LAT.</div>
+<pre class="diff"><code>+static volatile uint8 * const tris_registers[PORT_MAX_NUMBER] = {&amp;TRISA, &amp;TRISB, &amp;TRISC, &amp;TRISD, &amp;TRISE};
++static volatile uint8 * const lat_registers[PORT_MAX_NUMBER]  = {&amp;LATA,  &amp;LATB,  &amp;LATC,  &amp;LATD,  &amp;LATE};
++static volatile uint8 * const port_registers[PORT_MAX_NUMBER] = {&amp;PORTA, &amp;PORTB, &amp;PORTC, &amp;PORTD, &amp;PORTE};
++
+ Std_ReturnType gpio_pin_write(port_index_t port, pin_index_t pin, logic_t logic) {
+-    switch (port) { ... 5 حالات ... }
++    if (GPIO_HIGH == logic) {
++        SET_BIT(*(lat_registers[port]), pin);
++    } else {
++        CLEAR_BIT(*(lat_registers[port]), pin);
++    }
+     return E_OK;
+ }</code></pre>
+<p>الجدول ده أهم فكرة في الدرايفر. <code>lat_registers[2]</code> هو <code>&amp;LATC</code>، و <code>*</code> قبله يوصّلك للريجستر نفسه. سطر واحد بيخدم الخمس بورتات.</p>
+<h3>كلمة volatile، بالتجربة</h3>
+<p>شيل <code>volatile</code> من جدول PORT واكتب لوب مستني زرار:</p>
+<pre><code>logic_t b = GPIO_HIGH;
+do { gpio_pin_read(PORTB_INDEX, GPIO_PIN0, &amp;b); } while (GPIO_HIGH == b);</code></pre>
+<p>الـ XC8 المجاني غالبًا مش هيلاحظ، لأن الـ optimization ضعيف. بس على مستوى optimization أعلى أو كومبايلر تاني، الكومبايلر ممكن يستنتج إن محدش بيكتب في PORTB، فيقراه مرة ويحط القيمة في ريجستر ويلف عليها للأبد. الـ <code>volatile</code> بتمنعه. القاعدة: أي مؤشر لريجستر هاردوير يبقى volatile. مفيش استثناء.</p>
+<h3>والـ const في الآخر</h3>
+<p><code>volatile uint8 * const</code>: الـ const بعد النجمة يعني المؤشر نفسه ثابت. الجدول مش هيتغير، فالكومبايلر يحطه في الـ Flash وميضيّعش RAM.</p>
+
+<h2>v3: الفحص قبل أي حاجة</h2>
+<div class="goal"><b>الهدف:</b> أي قيمة غلط ترجع E_NOT_OK ومتلمسش الهاردوير.</div>
+<p>v2 فيها قنبلة: <code>lat_registers[7]</code>. الجدول 5 عناصر، فالعنصر رقم 7 هو أي حاجة جاية بعده في الـ Flash. هنفسّرها كعنوان ونكتب فيه. ممكن يطلع عنوان متغير في الـ RAM بتاعتك، يتغير لوحده، ومش هتعرف ليه خالص.</p>
+<pre class="diff"><code> Std_ReturnType gpio_pin_write(port_index_t port, pin_index_t pin, logic_t logic) {
++    Std_ReturnType ret = E_OK;
++    if (!IS_VALID_PORT_PIN(port, pin) || !IS_VALID_LOGIC(logic)) {
++        ret = E_NOT_OK;
++    }
+-    if (GPIO_HIGH == logic) {
++    else if (GPIO_HIGH == logic) {
+         SET_BIT(*(lat_registers[port]), pin);
+-    } else {
++    }
++    else {
+         CLEAR_BIT(*(lat_registers[port]), pin);
+     }
+-    return E_OK;
++    return ret;
+ }</code></pre>
+<p>ليه متغير <code>ret</code> و return واحد في الآخر بدل ما نعمل <code>return E_NOT_OK</code> على طول؟ دي قاعدة من MISRA (single exit point). ممكن تختلف معاها، وفيه ناس شاطرة بتختلف معاها. بس ليها فايدة عملية: لو بكرة عايز تضيف حاجة تتعمل في الآخر دايمًا (زي إنك تعدّ الأخطاء)، فيه مكان واحد.</p>
+<p>وليه <code>IS_VALID_PORT_PIN</code> مش <code>IS_VALID_PORT &amp;&amp; IS_VALID_PIN</code>؟ لأن PORTE رجله 5 بتعدّي الفحص التاني، والريجستر LATE بت 5 موجود في الذاكرة بس مالوش رجل. مش هيبوظ حاجة، بس الدالة هتقول E_OK على حاجة مستحيلة.</p>
+
+<h2>v4: gpio_pin_setup والترتيب</h2>
+<div class="goal"><b>الهدف:</b> نداء واحد يجهّز الرجل، من غير glitch.</div>
+<p>أول نسخة طبيعية:</p>
+<pre><code>CLEAR_BIT(*(tris_registers[port]), pin);    /* Output */
+if (GPIO_HIGH == logic) SET_BIT(*(lat_registers[port]), pin);
+else                    CLEAR_BIT(*(lat_registers[port]), pin);</code></pre>
+<p>بين السطر الأول والتاني الرجل Output وقيمتها القديمة. بعد الريست القيمة دي x في الداتاشيت، يعني مش معروفة. على 4MHz دي حوالي 2 ميكروثانية. ليد مش هتبان. بس تخيل ليد Active Low (أو ريلاي Active Low): في الـ 2µs دي ممكن الرجل تبقى LOW، يعني شغّال. ريلاي مش هيلحق يتحرك، بس دايرة منطقية (زي Enable لموتور درايفر أو Reset لشريحة تانية) هتلحق.</p>
+<pre class="diff"><code> Std_ReturnType gpio_pin_setup(port_index_t port, pin_index_t pin,
+                               direction_t direction, logic_t logic) {
+     Std_ReturnType ret = E_OK;
+     if (!IS_VALID_PORT_PIN(port, pin) || !IS_VALID_DIRECTION(direction) || !IS_VALID_LOGIC(logic)) {
+         ret = E_NOT_OK;
+     }
+     else {
++        gpio_pin_auto_digital(port, pin);
+         if (GPIO_DIRECTION_OUTPUT == direction) {
+-            CLEAR_BIT(*(tris_registers[port]), pin);
+             if (GPIO_HIGH == logic) { SET_BIT(*(lat_registers[port]), pin); }
+             else                    { CLEAR_BIT(*(lat_registers[port]), pin); }
++            CLEAR_BIT(*(tris_registers[port]), pin);    /* 0 = Output */
+         }
+         else {
+             SET_BIT(*(tris_registers[port]), pin);      /* 1 = Input */
+         }
+     }
+     return ret;
+ }</code></pre>
+<p>اللاتش الأول، وبعدين الاتجاه. والـ <code>gpio_pin_auto_digital</code> بتتأكد إن الرجل مش Analog، وده درس لوحده بعدين.</p>
+<a data-src="MCAL_Layer/GPIO/hal_gpio.c"></a>
+
+<h2>v5: القراية، ومؤشر NULL</h2>
+<pre><code>Std_ReturnType gpio_pin_read(port_index_t port, pin_index_t pin, logic_t *logic) {
+    Std_ReturnType ret = E_OK;
+    if (NULL == logic) {
+        ret = E_NOT_OK;
+    }
+    else if (!IS_VALID_PORT_PIN(port, pin)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        *logic = (READ_BIT(*(port_registers[port]), pin) == 1) ? GPIO_HIGH : GPIO_LOW;
+    }
+    return ret;
+}</code></pre>
+<p>فحص NULL الأول. لو حد بعت NULL، الكتابة في <code>*logic</code> على الـ PIC مش هتعمل crash زي الكمبيوتر، هتكتب في عنوان 0 في الـ RAM، وده متغير حقيقي عندك. الكمبيوتر بيرحمك بالـ crash، الميكرو مبيرحمش.</p>
+<p>ليه <code>? GPIO_HIGH : GPIO_LOW</code> مش <code>*logic = READ_BIT(...)</code> على طول؟ الاتنين بيدّوا نفس الرقم. بس الأولى بتحوّل لـ enum بشكل صريح، ولو في يوم GPIO_HIGH بقى قيمته حاجة تانية (مستحيل هنا، بس الفكرة) الكود يفضل صح.</p>
+<p>و <code>gpio_pin_read_latch</code> نفس الدالة بالظبط بس من <code>lat_registers</code>. ليه نحتاجها؟ علشان تعرف "أنا قلت إيه" من غير ما تحفظه في متغير. درايفر الليد هيستخدمها في <code>led_get_state</code>.</p>
+
+<h2>v6: التوجل</h2>
+<pre><code>TOGGLE_BIT(*(lat_registers[port]), pin);</code></pre>
+<p>XOR على الـ LAT. لو عملته على PORT هترجع لمشكلة الـ read-modify-write، وأسوأ: لو الرجل Input، PORT بيرجع الجهد الخارجي، فالتوجل هيكتب عكس الجهد الخارجي في الـ Latch بدل عكس اللي إنت كاتبه.</p>
+
+<h2>نختبر كل خطوة</h2>
+<p>في الـ Simulator: حط breakpoint بعد كل نداء، وبص على TRISC و LATC في نافذة SFRs. اكتب اختبار صغير في main:</p>
+<pre><code>Std_ReturnType r;
+r = gpio_pin_setup(PORTC_INDEX, GPIO_PIN0, GPIO_DIRECTION_OUTPUT, GPIO_HIGH);  /* E_OK, LATC.0=1, TRISC.0=0 */
+r = gpio_pin_write(PORTE_INDEX, GPIO_PIN5, GPIO_HIGH);                         /* E_NOT_OK، LATE مايتغيرش */
+r = gpio_pin_write(7, GPIO_PIN0, GPIO_HIGH);                                   /* E_NOT_OK */
+r = gpio_pin_read(PORTB_INDEX, GPIO_PIN0, NULL);                               /* E_NOT_OK */
+r = gpio_pin_toggle(PORTC_INDEX, GPIO_PIN0);                                   /* LATC.0 = 0 */</code></pre>
+<p>كل سطر جنبه اللي المفروض يحصل. لو حاجة مطابقتش، الغلط في الدالة دي بالظبط. ده unit test فقير، بس بيمسك 90% من الغلطات قبل ما توصل لبورد.</p>
+
+<div class="oops"><b>غلطات مشهورة</b>
+<p><code>if (logic = GPIO_HIGH)</code> بعلامة = واحدة: بيكتب مش بيقارن، والشرط دايمًا صح. علشان كده الكود كاتب الثابت على الشمال <code>GPIO_HIGH == logic</code>؛ لو نسيت = هيطلع خطأ كومبايل.</p>
+<p>نسيت الـ <code>*</code>: <code>SET_BIT(lat_registers[port], pin)</code> بيعدّل المؤشر نفسه مش الريجستر، والكومبايلر هيشتكي لأن الجدول const. وده بالظبط ليه الـ const مفيد.</p>
+<p>استخدمت <code>pin</code> كماسك بدل رقم: <code>gpio_pin_write(PORTC_INDEX, GPIO_PIN3_MASK, ...)</code>. الماسك قيمته 8، والفحص هيرفضه. الماسكات للدوال بتاعة البورت بس.</p></div>
+
+<div class="quiz"><p class="q">ليه التوجل على LAT مش PORT؟</p>
+<button>LAT أسرع</button><button data-ok>PORT بيرجع الجهد الحقيقي، فالتوجل عليه ممكن يكتب قيم غلط في رجول تانية وفي الرجل نفسها لو Input</button><button>PORT للقراية بس ومينفعش يتكتب فيه</button>
+<p class="why">الكتابة في PORT مسموحة وبتروح للـ LAT، بس القراية جزء من الـ XOR، وهي اللي بتجيب الجهد الحقيقي.</p></div>
+<div class="quiz"><p class="q">إيه أخطر حاجة في v2 من غير فحص؟</p>
+<button>بطء</button><button data-ok>قراية عنصر برّه الجدول والكتابة في عنوان عشوائي</button><button>مبيرجعش E_NOT_OK</button>
+<p class="why">ده memory corruption. أعراضه بتظهر في حتة تانية خالص من البرنامج.</p></div>
+
+<details class="ex"><summary>تمرين: gpio_pin_get_direction</summary>
+<p class="task">اكتب <code>gpio_pin_get_direction(port, pin, direction_t *direction)</code> بنفس الأسلوب: فحص NULL، فحص الرجل، وبعدين تقرا من TRIS.</p>
+<details><summary>اعرض الحل</summary>
+<pre><code>Std_ReturnType gpio_pin_get_direction(port_index_t port, pin_index_t pin, direction_t *direction) {
+    Std_ReturnType ret = E_OK;
+    if (NULL == direction) {
+        ret = E_NOT_OK;
+    }
+    else if (!IS_VALID_PORT_PIN(port, pin)) {
+        ret = E_NOT_OK;
+    }
+    else {
+        *direction = (READ_BIT(*(tris_registers[port]), pin) == 0) ?
+                     GPIO_DIRECTION_OUTPUT : GPIO_DIRECTION_INPUT;
+    }
+    return ret;
+}</code></pre>
+<p>قارنها باللي في الريبو: نفس الشكل. الـ 0 في TRIS يعني Output.</p></details></details>
+<details class="ex"><summary>تمرين: اكسر الكود بإيدك</summary>
+<p class="task">في الـ Simulator، اكتب <code>gpio_pin_setup</code> بالترتيب الغلط (TRIS الأول)، وحط LATC = 0xFF قبلها، وابعت GPIO_LOW. حط breakpoint بين السطرين. إيه اللي هتشوفه على الرجل؟</p>
+<details><summary>اعرض الحل</summary>
+<p>بعد سطر TRIS وقبل سطر LAT، الرجل Output و LAT بت فيه 1. يعني الرجل طالعة HIGH لحظة، مع إنك طلبت LOW. ده الـ glitch بعينه. بالترتيب الصح، اللحظة دي مش موجودة.</p></details></details>

@@ -1,0 +1,128 @@
+<p>عندنا GPIO وليد. نعمل بيهم حاجة حقيقية من الصفر، ونمشي فيها بنفس الطريقة: نسخة ساذجة، نشوفها بتقع فين، نصلّح. المشروع: زرار واحد، وكل ضغطة تنقل ليد منوّرة لليد اللي بعدها على 4 ليدات، وضغطة طويلة (ثانية) ترجّع للأولى.</p>
+<p>التوصيل: 4 ليدات على RD0..RD3 (Source، 330Ω)، وزرار بين RB0 والأرضي، والـ pull-ups الداخلية.</p>
+
+<h2>v1: اقرا واعمل</h2>
+<pre><code>static const led_config_t leds[4] = {
+    { .port = PORTD_INDEX, .pin = GPIO_PIN0, .active = LED_ACTIVE_HIGH_MODE },
+    { .port = PORTD_INDEX, .pin = GPIO_PIN1, .active = LED_ACTIVE_HIGH_MODE },
+    { .port = PORTD_INDEX, .pin = GPIO_PIN2, .active = LED_ACTIVE_HIGH_MODE },
+    { .port = PORTD_INDEX, .pin = GPIO_PIN3, .active = LED_ACTIVE_HIGH_MODE },
+};
+
+void main(void) {
+    uint8   cur = 0, i;
+    logic_t b;
+
+    (void)gpio_init();
+    (void)gpio_portb_pullup_enable();
+    (void)gpio_pin_setup(PORTB_INDEX, GPIO_PIN0, GPIO_DIRECTION_INPUT, GPIO_LOW);
+    for (i = 0; i &lt; 4; i++) { (void)led_initialize(&amp;leds[i]); }
+    (void)led_on(&amp;leds[0]);
+
+    while (1) {
+        (void)gpio_pin_read(PORTB_INDEX, GPIO_PIN0, &amp;b);
+        if (GPIO_LOW == b) {
+            (void)led_off(&amp;leds[cur]);
+            cur = (uint8)((cur + 1) % 4);
+            (void)led_on(&amp;leds[cur]);
+        }
+    }
+}</code></pre>
+<p>حرّقه ودوس. الليد هتجري عشوائي، ومش هتعرف توقّفها على واحدة. السبب إن اللوب بيلف مئات الألوف من المرات في الثانية، وطول ما صباعك على الزرار (حوالي 100ms) الشرط صح، فالليد بتتنقل آلاف المرات. وحتى لو كان سريع جدًا، الـ bounce كان هيعمل نفس الحاجة.</p>
+<p>بالمناسبة، ليه الـ array <code>const</code>؟ عشان يتحط في الـ Flash. والدوال بتاخد <code>const led_config_t *</code> فده ماشي من غير cast. ده سبب إضافي إن الـ API بيقبل const.</p>
+
+<h2>v2: الحافة</h2>
+<div class="goal"><b>الهدف:</b> كل ضغطة تتحسب مرة.</div>
+<pre class="diff"><code>+    logic_t prev = GPIO_HIGH;
+     while (1) {
+         (void)gpio_pin_read(PORTB_INDEX, GPIO_PIN0, &amp;b);
+-        if (GPIO_LOW == b) {
++        if ((GPIO_LOW == b) &amp;&amp; (GPIO_HIGH == prev)) {     /* لحظة النزول بس */
+             ...
+         }
++        prev = b;
+     }</code></pre>
+<p>أحسن كتير. بس هتلاقي أحيانًا الليد بتنط اتنين. ده الـ bounce: الحافة بتحصل 3 أو 4 مرات في أول ملي ثواني.</p>
+
+<h2>v3: Debounce بالعد</h2>
+<div class="goal"><b>الهدف:</b> منصدّقش التغيير غير لو ثبت 20ms.</div>
+<pre><code>#define TICK_MS         5
+#define DEBOUNCE_TICKS  4      /* 4 × 5ms = 20ms */
+
+typedef struct {
+    logic_t stable;
+    uint8   counter;
+} debounce_t;
+
+static boolean_t pressed_edge(debounce_t *d, logic_t raw) {
+    boolean_t edge = FALSE;
+    if (raw != d-&gt;stable) {
+        if (++d-&gt;counter &gt;= DEBOUNCE_TICKS) {
+            d-&gt;stable  = raw;
+            d-&gt;counter = 0;
+            edge = (GPIO_LOW == raw) ? TRUE : FALSE;
+        }
+    } else {
+        d-&gt;counter = 0;
+    }
+    return edge;
+}</code></pre>
+<p>ده نفس المنطق اللي في مشروع العداد في الريبو. وفي اللوب نقرا كل 5ms بس:</p>
+<pre><code>    debounce_t btn = { GPIO_HIGH, 0 };
+    while (1) {
+        (void)gpio_pin_read(PORTB_INDEX, GPIO_PIN0, &amp;b);
+        if (pressed_edge(&amp;btn, b)) {
+            (void)led_off(&amp;leds[cur]);
+            cur = (uint8)((cur + 1) % 4);
+            (void)led_on(&amp;leds[cur]);
+        }
+        __delay_ms(TICK_MS);
+    }</code></pre>
+<a data-src="Projects/03_Binary_Counter/main.c"></a>
+
+<h2>v4: الضغطة الطويلة</h2>
+<div class="goal"><b>الهدف:</b> لو الزرار فضل مضغوط ثانية، ارجع لليد الأولى.</div>
+<pre class="diff"><code>+#define LONG_TICKS      (1000 / TICK_MS)   /* 200 */
++    uint16 held = 0;
+     while (1) {
+         (void)gpio_pin_read(PORTB_INDEX, GPIO_PIN0, &amp;b);
+         if (pressed_edge(&amp;btn, b)) { ... }
++        if (GPIO_LOW == btn.stable) {
++            if (held &lt; LONG_TICKS) {
++                if (++held == LONG_TICKS) {
++                    (void)led_off(&amp;leds[cur]);
++                    cur = 0;
++                    (void)led_on(&amp;leds[cur]);
++                }
++            }
++        } else {
++            held = 0;
++        }
+         __delay_ms(TICK_MS);
+     }</code></pre>
+<p>ليه <code>uint16</code>؟ 200 بتدخل في uint8، بس لو حد غيّر TICK_MS لـ 2 تبقى 500، وتعدّي 255 من غير ما حد ياخد باله. ليه <code>held &lt; LONG_TICKS</code> قبل الزيادة؟ علشان العداد يقف عند 200 وميلفّش، وإلا لو فضلت ضاغط هيلف ويرجع للأولى تاني كل كام ثانية. وخد بالك إن الضغطة الطويلة بتبدأ بضغطة عادية، فالليد هتتنقل خطوة الأول وبعدين ترجع للأولى. لو مش عايز ده، الحل إنك تنفّذ الضغطة القصيرة لحظة <b>الرفع</b> بدل النزول. جرّبها كتمرين.</p>
+
+<div class="quiz"><p class="q">في v1 الليد بتجري عشوائي. السبب الأكبر؟</p>
+<button>الـ bounce</button><button data-ok>الشرط بيتحقق في كل لفة طول ما الزرار مضغوط</button><button>الـ pull-up مش شغال</button>
+<p class="why">الـ bounce موجود، بس حتى من غيره كانت هتجري. الحافة هي الحل الأول.</p></div>
+
+<details class="ex"><summary>تمرين: الضغطة القصيرة عند الرفع</summary>
+<p class="task">عدّل المشروع: الضغطة القصيرة (أقل من ثانية) تنقل الليد لما تشيل صباعك، والطويلة ترجّع للأولى من غير ما تنقل الأول.</p>
+<details><summary>اعرض الحل</summary>
+<pre><code>static boolean_t changed(debounce_t *d, logic_t raw) {   /* TRUE عند أي تغيير مستقر */
+    boolean_t c = FALSE;
+    if (raw != d-&gt;stable) {
+        if (++d-&gt;counter &gt;= DEBOUNCE_TICKS) { d-&gt;stable = raw; d-&gt;counter = 0; c = TRUE; }
+    } else { d-&gt;counter = 0; }
+    return c;
+}
+
+/* في اللوب */
+if (changed(&amp;btn, b) &amp;&amp; (GPIO_HIGH == btn.stable)) {      /* لحظة الرفع */
+    if (held &lt; LONG_TICKS) { next_led(); }                 /* كانت قصيرة */
+    held = 0;
+}
+if (GPIO_LOW == btn.stable &amp;&amp; held &lt; LONG_TICKS) {
+    if (++held == LONG_TICKS) { go_first(); }
+}</code></pre>
+<p>الفكرة إن القرار بيتاخد لما الضغطة تخلص وتعرف طولها. ده نفس اللي الموبايل بيعمله في زرار الباور.</p></details></details>

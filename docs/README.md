@@ -12,3 +12,6 @@
 - `<div class="quiz"><p class="q">...</p><button data-ok>الصح</button><button>غلط</button><p class="why">ليه</p></div>`
 - `<a data-src="MCAL_Layer/GPIO/hal_gpio.c"></a>` لينك للملف في الريبو.
 - `<pre><code>...</code></pre>` كود مع زرار نسخ.
+- `<pre class="diff"><code>` كود فيه سطور بتبدأ بـ `+` (إضافة) و `-` (حذف) بيتلوّن، وزرار النسخ بينسخ النسخة الجديدة بس.
+- `<div class="goal"><b>الهدف:</b> ...</div>` و `<div class="oops"><b>غلطات مشهورة</b>...</div>`
+- تمرين بحل مستخبي: `<details class="ex"><summary>العنوان</summary><p class="task">...</p><details><summary>اعرض الحل</summary>...</details></details>`

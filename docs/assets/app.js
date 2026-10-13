@@ -16,6 +16,7 @@
       <p class="meta">كورس تفاعلي · PIC18F4620 · MPLAB XC8</p>
       <h1>نتعلم Embedded على PIC18، من أول LED لحد ما نكتب درايفرات بجد</h1>
       <p>الكورس ده ماشي جنب مشروع <a href="https://github.com/Mkko000/pic18-embedded-drivers">pic18-embedded-drivers</a> خطوة بخطوة. كل حاجة اتكتبت في الكود ليها هنا شرح: ليه اتكتبت كده، وإيه اللي كان ممكن يبوظ لو اتكتبت بطريقة تانية. فيه حاسبات تجرّب فيها بأرقامك، وأسئلة صغيرة بعد كل جزء، والصفحة بتفتكر إنت وصلت لحد فين.</p>
+      <p>الكورس تلات أجزاء: الأساس الكهربي، وبعدين نقرا الكود اللي في الريبو، وبعدين نكتب الدرايفرات بإيدينا من فولدر فاضي، نسخة ورا نسخة، وكل خطوة فيها تمرين وحله مستخبي.</p>
       <p>الدروس هتزيد مع المشروع. كل ما ندخل درايفر جديد (زرار، ADC، تايمرز، UART) هيبقى ليه درس هنا.</p>
       <a class="btn main" href="#/${next.id}">${d.length?'كمّل من':'ابدأ بـ'}: ${next.title}</a>
       <div class="cards">${all.map((l,i)=>`<a href="#/${l.id}" class="${d.includes(l.id)?'done':''}"><small>درس ${i+1} · ${l.min} دقيقة${d.includes(l.id)?' · خلصته':''}</small><br><b>${l.title}</b></a>`).join('')}</div>
@@ -35,7 +36,7 @@
   }
   function hl(s){return s.replace(/(\/\*[\s\S]*?\*\/|\/\/[^\n]*)|("[^"\n]*")|(#(?:include|define|ifdef|ifndef|if|else|endif|error|pragma)\b|\b(?:typedef|struct|enum|if|else|return|const|static|void|for|while|break|switch|case|volatile|#include|#define|#if|#ifdef|#else|#endif|#error|#pragma|uint8|uint16|Std_ReturnType|NULL)\b)|\b(0x[0-9A-Fa-f]+|\d+U?L?)\b/g,(m,c,s2,k,n)=>c?`<span class="c">${c}</span>`:s2?`<span class="s">${s2}</span>`:k?`<span class="k">${k}</span>`:`<span class="m">${n}</span>`)}
   function enhance(root){
-    root.querySelectorAll('pre').forEach(p=>{const c=p.querySelector('code'); if(c&&!p.dataset.raw){p.dataset.raw=c.textContent;c.innerHTML=hl(c.innerHTML);}
+    root.querySelectorAll('pre').forEach(p=>{const c=p.querySelector('code'); if(c&&!p.dataset.raw){p.dataset.raw=c.textContent;c.innerHTML=hl(c.innerHTML); if(p.classList.contains('diff')){c.innerHTML=c.innerHTML.split('\n').map(l=>{const t=l.replace(/<[^>]+>/g,'');const k=t[0]==='+'?' add':t[0]==='-'?' del':'';return `<span class="ln${k}">${l||' '}</span>`}).join('');p.dataset.raw=p.dataset.raw.split('\n').filter(l=>l[0]!=='-').map(l=>l[0]==='+'?' '+l.slice(1):l).join('\n');}}
       const b=document.createElement('button');b.className='cp';b.textContent='نسخ';b.onclick=()=>{navigator.clipboard.writeText(p.dataset.raw||p.textContent).then(()=>{b.textContent='اتنسخ';setTimeout(()=>b.textContent='نسخ',1400)})};p.appendChild(b);});
     root.querySelectorAll('a[data-src]').forEach(a=>{a.href=C.repo+a.dataset.src;a.target='_blank';a.rel='noopener';a.classList.add('src');if(!a.textContent)a.textContent='↗ '+a.dataset.src;});
     root.querySelectorAll('.quiz').forEach(q=>q.querySelectorAll('button').forEach(b=>b.onclick=()=>{if(q.classList.contains('answered'))return;q.classList.add('answered');b.classList.add('ok' in b.dataset?'right':'wrong');q.querySelector('[data-ok]').classList.add('right');}));
